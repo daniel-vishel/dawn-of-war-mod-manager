@@ -209,9 +209,3 @@ cd ui-unstretch
 - [zero334/Dawn-of-War-Widescreen-Fix](https://github.com/zero334/Dawn-of-War-Widescreen-Fix) — референс автоматизации
 - [ModernMAK/Relic-Game-Tool](https://github.com/ModernMAK/Relic-Game-Tool) — референс формата SGA v2
 - [Unstretched UI (Soulstorm/DC)](https://www.moddb.com/mods/unstretched-ui) — идея нерастянутого UI (напрямую несовместим с AE)
-
-## 6. Планы
-
-- Разделение модов на отдельные репозитории (после стабилизации).
-- Якорные режимы UI (мини-карта в углу экрана вместо 4:3-столба) — по результатам теста.
-- Вариант ASI/DLL-инъекции, если патч в памяти окажется ненадёжным по таймингу.
