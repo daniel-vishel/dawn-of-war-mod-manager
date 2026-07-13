@@ -1,2 +1,3 @@
 *.local.md
 ui-unstretch/extracted/
+.claude/
