@@ -19,22 +19,39 @@
 #      ... правите PNG в редакторе (альфа = прозрачность) ...
 #      .\Edit-BarTextures.ps1 -Import    # вернуть правки в игру
 #
+#  ПОЛНОСТЬЮ ПЕРЕРИСОВАННЫЕ ломтики (любой размер, фон может быть
+#  чёрным вместо прозрачного — например, из нейросети) кладите в
+#  ui-unstretch\textures-custom\<раса>\<имя ломтика>.png.
+#  При -Import такие файлы обрабатываются автоматически:
+#    1) чёрный фон, связанный с краями картинки, вырезается заливкой
+#       (чёрные детали ВНУТРИ панели не трогаются);
+#    2) арт выравнивается по габаритам оригинального ломтика
+#       (масштаб по высоте, привязка к левому верхнему углу) — кнопки
+#       и мини-карта остаются точно на своих местах;
+#    3) в textures-custom\_preview\ пишется оверлей нового арта с
+#       оригиналом — совмещение можно проверить БЕЗ запуска игры
+#       (то же самое делает -Preview, игра для него не нужна).
+#  Точная подгонка (если арт сел неидеально): рядом с PNG положите
+#  <имя>.png.align.json вида {"scale":1.02,"dx":-3,"dy":1,"threshold":12}
+#
 #  ВАЖНО: повторный запуск Install-UnstretchedUI.ps1 перегенерирует
 #  TGA из архива и затрёт ваши правки — после него снова -Import.
-#  Не меняйте размеры PNG: ширина должна остаться степенью двойки.
+#  В textures\ размеры PNG не меняйте (ширина — степень двойки).
 # ============================================================
 
 param(
     [switch]$Export,
     [switch]$Import,
+    [switch]$Preview,   # только пересобрать превью-оверлеи для textures-custom (игра не нужна)
     [string]$GamePath = '',
-    [string]$Dir = "$PSScriptRoot\textures"
+    [string]$Dir = "$PSScriptRoot\textures",
+    [string]$CustomDir = "$PSScriptRoot\textures-custom"
 )
 
 $ErrorActionPreference = 'Stop'
 
-if (-not $Export -and -not $Import) {
-    Write-Host "Укажите режим: -Export (выгрузить PNG для правки) или -Import (вернуть правки в игру)." -ForegroundColor Yellow
+if (-not $Export -and -not $Import -and -not $Preview) {
+    Write-Host "Укажите режим: -Export (выгрузить PNG), -Import (вернуть правки в игру) или -Preview (проверить совмещение)." -ForegroundColor Yellow
     exit 1
 }
 
@@ -196,6 +213,62 @@ public static class DxtDec2 {
             255 };
     }
 }
+
+// ----- Выравнивание перерисованных текстур (BGRA-буферы) -----
+public static class TexAlign {
+    // bbox пикселей ярче порога: [x0,y0,x1,y1] или x1=-1, если пусто
+    public static int[] BBoxNonBlack(byte[] px, int w, int h, int thr) {
+        int x0 = w, y0 = h, x1 = -1, y1 = -1;
+        for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            int o = (y * w + x) * 4;
+            if (px[o + 3] < 16) continue;
+            int m = Math.Max(px[o], Math.Max(px[o + 1], px[o + 2]));
+            if (m > thr) {
+                if (x < x0) x0 = x; if (x > x1) x1 = x;
+                if (y < y0) y0 = y; if (y > y1) y1 = y;
+            }
+        }
+        return new int[] { x0, y0, x1, y1 };
+    }
+    // bbox непрозрачных пикселей
+    public static int[] BBoxAlpha(byte[] px, int w, int h) {
+        int x0 = w, y0 = h, x1 = -1, y1 = -1;
+        for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            if (px[(y * w + x) * 4 + 3] > 16) {
+                if (x < x0) x0 = x; if (x > x1) x1 = x;
+                if (y < y0) y0 = y; if (y > y1) y1 = y;
+            }
+        }
+        return new int[] { x0, y0, x1, y1 };
+    }
+    // Вырезает фон: почти чёрные пиксели, связанные с краями картинки,
+    // получают alpha=0. Чёрные детали внутри панели не задеваются.
+    public static int KeyBackground(byte[] px, int w, int h, int thr) {
+        bool[] bg = new bool[w * h];
+        Queue<int> q = new Queue<int>();
+        for (int x = 0; x < w; x++) { TryPush(px, bg, q, x, 0, w, thr); TryPush(px, bg, q, x, h - 1, w, thr); }
+        for (int y = 0; y < h; y++) { TryPush(px, bg, q, 0, y, w, thr); TryPush(px, bg, q, w - 1, y, w, thr); }
+        while (q.Count > 0) {
+            int i = q.Dequeue(); int x = i % w, y = i / w;
+            if (x > 0)     TryPush(px, bg, q, x - 1, y, w, thr);
+            if (x < w - 1) TryPush(px, bg, q, x + 1, y, w, thr);
+            if (y > 0)     TryPush(px, bg, q, x, y - 1, w, thr);
+            if (y < h - 1) TryPush(px, bg, q, x, y + 1, w, thr);
+        }
+        int n = 0;
+        for (int i = 0; i < w * h; i++) if (bg[i]) { px[i * 4 + 3] = 0; n++; }
+        return n;
+    }
+    static void TryPush(byte[] px, bool[] bg, Queue<int> q, int x, int y, int w, int thr) {
+        int i = y * w + x;
+        if (bg[i]) return;
+        int o = i * 4;
+        int m = Math.Max(px[o], Math.Max(px[o + 1], px[o + 2]));
+        if (m <= thr) { bg[i] = true; q.Enqueue(i); }
+    }
+}
 "@
 
 Add-Type -AssemblyName System.Drawing
@@ -234,21 +307,25 @@ function Find-GamePath {
     return $null
 }
 
-if (-not $GamePath) { $GamePath = Find-GamePath }
-if (-not $GamePath -or -not (Test-Path (Join-Path $GamePath 'W40k.exe'))) {
-    Write-Host "Не нашёл папку с игрой автоматически." -ForegroundColor Yellow
-    $GamePath = Read-Host "Вставьте полный путь к папке игры (где лежит W40k.exe)"
-    if (-not (Test-Path (Join-Path $GamePath 'W40k.exe'))) {
-        Write-Host "W40k.exe не найден по этому пути. Выход." -ForegroundColor Red
-        exit 1
+# Для -Preview игра не нужна: работаем только с PNG в папках скрипта
+$engineDir = $null
+if ($Export -or $Import) {
+    if (-not $GamePath) { $GamePath = Find-GamePath }
+    if (-not $GamePath -or -not (Test-Path (Join-Path $GamePath 'W40k.exe'))) {
+        Write-Host "Не нашёл папку с игрой автоматически." -ForegroundColor Yellow
+        $GamePath = Read-Host "Вставьте полный путь к папке игры (где лежит W40k.exe)"
+        if (-not (Test-Path (Join-Path $GamePath 'W40k.exe'))) {
+            Write-Host "W40k.exe не найден по этому пути. Выход." -ForegroundColor Red
+            exit 1
+        }
     }
-}
-Write-Host "Папка игры: $GamePath" -ForegroundColor Cyan
+    Write-Host "Папка игры: $GamePath" -ForegroundColor Cyan
 
-$engineSga = Get-ChildItem -Path $GamePath -Recurse -Filter 'Engine.sga' -ErrorAction SilentlyContinue |
-             Select-Object -First 1
-if (-not $engineSga) { Write-Host "Engine.sga не найден." -ForegroundColor Red; exit 1 }
-$engineDir = Split-Path $engineSga.FullName -Parent
+    $engineSga = Get-ChildItem -Path $GamePath -Recurse -Filter 'Engine.sga' -ErrorAction SilentlyContinue |
+                 Select-Object -First 1
+    if (-not $engineSga) { Write-Host "Engine.sga не найден." -ForegroundColor Red; exit 1 }
+    $engineDir = Split-Path $engineSga.FullName -Parent
+}
 
 function Get-Pow2([int]$n) { $p = 1; while ($p -lt $n) { $p *= 2 }; return $p }
 
@@ -279,6 +356,136 @@ function Load-PngFlipped([string]$path, [ref]$w, [ref]$h) {
     $bmp.Dispose()
     return ,$px
 }
+# --- Работа с Bitmap в нормальной (не DDS) ориентации ---
+function Get-BitmapBuffer([System.Drawing.Bitmap]$bmp) {
+    $rect = New-Object System.Drawing.Rectangle(0, 0, $bmp.Width, $bmp.Height)
+    $bd = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $px = New-Object byte[] ($bmp.Width * $bmp.Height * 4)
+    for ($y = 0; $y -lt $bmp.Height; $y++) {
+        [System.Runtime.InteropServices.Marshal]::Copy([IntPtr]($bd.Scan0.ToInt64() + $y * $bd.Stride), $px, $y * $bmp.Width * 4, $bmp.Width * 4)
+    }
+    $bmp.UnlockBits($bd)
+    return ,$px
+}
+function New-BitmapFromBuffer([byte[]]$px, [int]$w, [int]$h) {
+    $bmp = New-Object System.Drawing.Bitmap($w, $h, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $rect = New-Object System.Drawing.Rectangle(0, 0, $w, $h)
+    $bd = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::WriteOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    for ($y = 0; $y -lt $h; $y++) {
+        [System.Runtime.InteropServices.Marshal]::Copy($px, $y * $w * 4, [IntPtr]($bd.Scan0.ToInt64() + $y * $bd.Stride), $w * 4)
+    }
+    $bmp.UnlockBits($bd)
+    return $bmp
+}
+
+# ---------- Обработка перерисованных текстур (textures-custom) ----------
+# Возвращает число обработанных файлов; $writeTga=$false — только превью.
+function Process-CustomTextures([bool]$writeTga) {
+    if (-not (Test-Path $CustomDir)) {
+        Write-Host "Папка $CustomDir не найдена — перерисованных текстур нет." -ForegroundColor Yellow
+        return 0
+    }
+    $prevDir = Join-Path $CustomDir '_preview'
+    New-Item -ItemType Directory -Force -Path $prevDir | Out-Null
+    $count = 0
+    $pngs = Get-ChildItem $CustomDir -Recurse -Filter '*.png' |
+            Where-Object { $_.FullName -notlike '*\_preview\*' }
+    foreach ($png in $pngs) {
+        $race = Split-Path (Split-Path $png.FullName -Parent) -Leaf
+        $name = $png.BaseName
+        $origPng = Join-Path $Dir "$race\$name.png"
+        if (-not (Test-Path $origPng)) {
+            Write-Host "  [!!] $race\$name.png — нет оригинала в textures\$race (сначала запустите -Export)" -ForegroundColor Red
+            continue
+        }
+        # необязательная подгонка: <файл>.align.json {"scale":..,"dx":..,"dy":..,"threshold":..}
+        $adjScale = 1.0; $adjDx = 0; $adjDy = 0; $thr = 12
+        $sidecar = "$($png.FullName).align.json"
+        if (Test-Path $sidecar) {
+            $j = Get-Content $sidecar -Raw | ConvertFrom-Json
+            if ($j.scale)              { $adjScale = [double]$j.scale }
+            if ($null -ne $j.dx)       { $adjDx = [int]$j.dx }
+            if ($null -ne $j.dy)       { $adjDy = [int]$j.dy }
+            if ($j.threshold)          { $thr = [int]$j.threshold }
+        }
+
+        # 1) пользовательский арт: вырезаем фон заливкой от краёв
+        $userBmpRaw = New-Object System.Drawing.Bitmap($png.FullName)
+        $uw = $userBmpRaw.Width; $uh = $userBmpRaw.Height
+        $ubuf = Get-BitmapBuffer $userBmpRaw
+        $userBmpRaw.Dispose()
+        $removed = [TexAlign]::KeyBackground($ubuf, $uw, $uh, $thr)
+        $ub = [TexAlign]::BBoxAlpha($ubuf, $uw, $uh)
+        if ($ub[2] -lt 0) {
+            Write-Host "  [!!] $race\$name.png — после вырезания фона не осталось арта (порог $thr)" -ForegroundColor Red
+            continue
+        }
+        $userBmp = New-BitmapFromBuffer $ubuf $uw $uh
+
+        # 2) оригинальный ломтик: холст и габариты арта
+        $origBmp = New-Object System.Drawing.Bitmap($origPng)
+        $P = $origBmp.Width; $th = $origBmp.Height
+        $obuf = Get-BitmapBuffer $origBmp
+        $ob = [TexAlign]::BBoxAlpha($obuf, $P, $th)
+        if ($ob[2] -lt 0) { $ob = @(0, 0, $P - 1, $th - 1) }
+
+        # 3) совмещение: высота арта = высоте оригинального арта,
+        #    привязка к его левому верхнему углу (пропорции сохраняются)
+        $obH = $ob[3] - $ob[1] + 1
+        $ubW = $ub[2] - $ub[0] + 1; $ubH = $ub[3] - $ub[1] + 1
+        $s = ($obH / $ubH) * $adjScale
+        $destX = $ob[0] + $adjDx
+        $destY = $ob[1] + $adjDy
+        $destW = [int][Math]::Round($ubW * $s)
+        $destH = [int][Math]::Round($ubH * $s)
+
+        $canvas = New-Object System.Drawing.Bitmap($P, $th, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $g = [System.Drawing.Graphics]::FromImage($canvas)
+        $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $g.PixelOffsetMode   = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $srcRect  = New-Object System.Drawing.Rectangle($ub[0], $ub[1], $ubW, $ubH)
+        $destRect = New-Object System.Drawing.Rectangle($destX, $destY, $destW, $destH)
+        $g.DrawImage($userBmp, $destRect, $srcRect, [System.Drawing.GraphicsUnit]::Pixel)
+        $g.Dispose(); $userBmp.Dispose()
+
+        $clipNote = ''
+        if ($destX + $destW -gt $P) { $clipNote = " | правый край обрезан холстом ($($destX+$destW)px > $P px)" }
+
+        # 4) превью: оригинал полупрозрачно поверх результата
+        $prev = New-Object System.Drawing.Bitmap($P, $th, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $pg = [System.Drawing.Graphics]::FromImage($prev)
+        $pg.Clear([System.Drawing.Color]::FromArgb(255, 40, 40, 40))
+        $pg.DrawImage($canvas, 0, 0, $P, $th)
+        $cm = New-Object System.Drawing.Imaging.ColorMatrix
+        $cm.Matrix33 = 0.55
+        $ia = New-Object System.Drawing.Imaging.ImageAttributes
+        $ia.SetColorMatrix($cm)
+        $pg.DrawImage($origBmp, (New-Object System.Drawing.Rectangle(0, 0, $P, $th)), 0, 0, $P, $th, [System.Drawing.GraphicsUnit]::Pixel, $ia)
+        $pg.Dispose(); $origBmp.Dispose()
+        $prevPath = Join-Path $prevDir ("{0}__{1}.png" -f $race, $name)
+        $prev.Save($prevPath, [System.Drawing.Imaging.ImageFormat]::Png)
+        $prev.Dispose()
+
+        # 5) TGA в игру
+        if ($writeTga) {
+            $cbuf = Get-BitmapBuffer $canvas
+            $ddsBuf = New-Object byte[] ($P * $th * 4)
+            for ($y = 0; $y -lt $th; $y++) {
+                [Array]::Copy($cbuf, $y * $P * 4, $ddsBuf, ($th - 1 - $y) * $P * 4, $P * 4)
+            }
+            $outDir = Join-Path $engineDir "Data\art\ui\textures\taskbar\$race"
+            New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+            Write-Tga (Join-Path $outDir "$name.tga") $ddsBuf $P $th
+        }
+        $canvas.Dispose()
+        $count++
+        Write-Host ("  [OK] {0}\{1}: фон вырезан ({2:P0} пикс.), арт {3}x{4} -> {5}x{6} @ ({7},{8}){9}" -f `
+            $race, $name, ($removed / ($uw * $uh)), $ubW, $ubH, $destW, $destH, $destX, $destY, $clipNote) -ForegroundColor Green
+        Write-Host ("       превью совмещения: {0}" -f $prevPath) -ForegroundColor DarkGray
+    }
+    return $count
+}
+
 function Write-Tga([string]$path, [byte[]]$px, [int]$w, [int]$h) {
     # строки в порядке DDS, origin top-left (0x28) — так ждёт движок
     $hdr = New-Object byte[] 18
@@ -335,6 +542,13 @@ if ($Export) {
     exit 0
 }
 
+# ---------- Preview (совмещение перерисованных текстур, игра не нужна) ----------
+if ($Preview) {
+    $n = Process-CustomTextures $false
+    Write-Host "`nПревью пересобраны: $n (папка $CustomDir\_preview)" -ForegroundColor Cyan
+    exit 0
+}
+
 # ---------- Import ----------
 if ($Import) {
     if (-not (Test-Path $Dir)) {
@@ -357,10 +571,15 @@ if ($Import) {
         $count++
         Write-Host "  [OK] $folder\$($png.BaseName).tga" -ForegroundColor Green
     }
+
+    Write-Host "`nПерерисованные текстуры (textures-custom):" -ForegroundColor Cyan
+    $count += Process-CustomTextures $true
+
     Write-Host @"
 
 Собрано TGA: $count -> $engineDir\Data\art\ui\textures\taskbar\
-Перезапустите игру, чтобы увидеть правки.
+Перезапустите игру, чтобы увидеть правки. Совмещение перерисованных
+текстур можно проверить по картинкам в textures-custom\_preview\.
 ВАЖНО: Install-UnstretchedUI.ps1 при переустановке перегенерирует TGA
 из архива — после него запустите -Import ещё раз.
 "@ -ForegroundColor Cyan
