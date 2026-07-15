@@ -15,6 +15,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
@@ -249,6 +250,53 @@ namespace DowModManager
         }
     }
 
+    // ---------- Разрешение текущего экрана ----------
+    static class ScreenInfo
+    {
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        struct DEVMODE
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
+            public short dmSpecVersion, dmDriverVersion, dmSize, dmDriverExtra;
+            public int dmFields;
+            public int dmPositionX, dmPositionY;
+            public int dmDisplayOrientation, dmDisplayFixedOutput;
+            public short dmColor, dmDuplex, dmYResolution, dmTTOption, dmCollate;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
+            public short dmLogPixels;
+            public int dmBitsPerPel, dmPelsWidth, dmPelsHeight, dmDisplayFlags, dmDisplayFrequency;
+            public int dmICMMethod, dmICMIntent, dmMediaType, dmDitherType, dmReserved1, dmReserved2, dmPanningWidth, dmPanningHeight;
+        }
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE devMode);
+        const int ENUM_CURRENT_SETTINGS = -1;
+
+        // Физическое разрешение монитора, на котором находится окно.
+        // EnumDisplaySettings не врёт при масштабировании Windows, в отличие
+        // от Screen.Bounds, поэтому он основной, а Screen — запасной вариант.
+        public static void Get(Control c, out int w, out int h)
+        {
+            w = 0; h = 0;
+            try
+            {
+                var scr = c != null ? Screen.FromControl(c) : Screen.PrimaryScreen;
+                var dm = new DEVMODE();
+                dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+                if (EnumDisplaySettings(scr.DeviceName, ENUM_CURRENT_SETTINGS, ref dm)
+                    && dm.dmPelsWidth > 0 && dm.dmPelsHeight > 0)
+                {
+                    w = dm.dmPelsWidth; h = dm.dmPelsHeight;
+                    return;
+                }
+                w = scr.Bounds.Width; h = scr.Bounds.Height;
+            }
+            catch
+            {
+                try { w = Screen.PrimaryScreen.Bounds.Width; h = Screen.PrimaryScreen.Bounds.Height; } catch { }
+            }
+        }
+    }
+
     // ---------- Автопоиск папки игры ----------
     static class GameFinder
     {
@@ -469,17 +517,23 @@ namespace DowModManager
             y += 92;
 
             // --- Widescreen + UI ---
+            // Сетка: три строки по 28px, левая колонка с x=14, правая с x=396.
+            // Всё внутри строки центрируется по её базовой линии (RowY).
+            const int wsR1 = 24, wsR2 = 54, wsR3 = 86;   // строки
+            const int colL = 14, colR = 374;             // колонки
+
             var grpWs = Group("Widescreen-отрисовка + нерастянутый UI (единый комплект)", 12, y, 660, 122);
-            chkWs = Check("Включить отрисовку под разрешение (UI ставится автоматически)", 14, 24, 0);
+            chkWs = Check("Включить отрисовку под разрешение (UI ставится автоматически)", colL, wsR1, 0);
             chkWs.Checked = S.Widescreen;
             var dotWs = DotAfter(chkWs, Help.Widescreen);
             chkWs.CheckedChanged += (s, e) => { ToggleWs(); if (!loading) MarkDirty(); };
 
-            var lblRes = Lbl("Разрешение:", 14, 56);
-            cmbRes = Combo(110, 52, 130, new object[] { "3440x1440", "2560x1080", "3840x1600", "5120x1440", "2560x1440", "1920x1080", "другое" });
-            numW = Num(250, 52, 80, 640, 10000, S.Width);
-            var lblX = Lbl("×", 334, 56);
-            numH = Num(352, 52, 80, 480, 5000, S.Height);
+            // строка 2, левая колонка: разрешение
+            var lblRes = Lbl("Разрешение:", colL, RowLbl(wsR2));
+            cmbRes = Combo(colL + 92, wsR2, 104, new object[] { "3440x1440", "2560x1080", "3840x1600", "5120x1440", "2560x1440", "1920x1080", "другое" });
+            numW = Num(colL + 204, wsR2, 60, 640, 10000, S.Width);
+            var lblX = Lbl("×", colL + 270, RowLbl(wsR2));
+            numH = Num(colL + 282, wsR2, 60, 480, 5000, S.Height);
             string preset = S.Width + "x" + S.Height;
             cmbRes.SelectedItem = cmbRes.Items.Contains(preset) ? preset : "другое";
             cmbRes.SelectedIndexChanged += (s, e) =>
@@ -490,16 +544,18 @@ namespace DowModManager
             numW.ValueChanged += (s, e) => { if (!loading) MarkDirty(); };
             numH.ValueChanged += (s, e) => { if (!loading) MarkDirty(); };
 
-            var lblExe = Lbl("Мини-карта (exe):", 452, 56);
+            // строка 2, правая колонка: мини-карта — подпись, «?» и список в одной строке
+            var lblExe = Lbl("Мини-карта (exe):", colR, RowLbl(wsR2));
             var dotExe = DotAfter(lblExe, Help.ExeMode);
-            cmbExe = Combo(452, 76, 170, new object[] { "skip", "compromise", "full" });
+            cmbExe = Combo(dotExe.Right + 10, wsR2, 130, new object[] { "skip", "compromise", "full" });
             cmbExe.SelectedItem = new[] { "skip", "compromise", "full" }.Contains(S.ExeMode) ? S.ExeMode : "skip";
             cmbExe.SelectedIndexChanged += (s, e) => { if (!loading) MarkDirty(); };
 
-            var lblTex = Lbl("Нижняя панель управления:", 14, 90);
+            // строка 3: нижняя панель управления
+            var lblTex = Lbl("Нижняя панель управления:", colL, RowLbl(wsR3));
             var dotTex = DotAfter(lblTex, Help.Textures);
-            radCustom = Radio("дорисованные", 214, 88, 130);
-            radHard = Radio("жёсткая обрезка", 350, 88, 150);
+            radCustom = Radio("дорисованные", dotTex.Right + 10, wsR3 + 1, 130);
+            radHard = Radio("жёсткая обрезка", radCustom.Right + 12, wsR3 + 1, 150);
             radCustom.Checked = S.TexturesCustom; radHard.Checked = !S.TexturesCustom;
             radCustom.CheckedChanged += (s, e) => { if (!loading) MarkDirty(); };
 
@@ -555,7 +611,7 @@ namespace DowModManager
             // акцентная кнопка не сереет сама — красим по состоянию
             btnPlay.EnabledChanged += (s, e) => StylePlayButton();
             btnDefaults = Btn("По умолчанию", 388, y, 140, 34, (s, e) => ResetToDefaults());
-            tip.SetToolTip(btnDefaults, "Вернуть параметры окна к рекомендуемым значениям\r\n(3440×1440, widescreen+UI, дорисованные текстуры, зум 76, exe: skip).\r\nНа игру это не влияет, пока не нажать «Применить».");
+            tip.SetToolTip(btnDefaults, "Вернуть параметры окна к рекомендуемым значениям:\r\nразрешение подтягивается с текущего экрана, widescreen+UI,\r\nдорисованные текстуры, зум 76, exe: skip.\r\nНа игру это не влияет, пока не нажать «Применить».");
             btnRestore = Btn("Откат", 536, y, 136, 34, (s, e) => Run("restore"));
             tip.SetToolTip(btnRestore, "Возвращает файлы игры к оригиналу и снимает все галочки в окне.\r\nФайлы русификатора при этом не удаляются — только язык вернётся на английский.");
             Controls.AddRange(new Control[] { btnApply, btnPlay, btnDefaults, btnRestore });
@@ -641,6 +697,8 @@ namespace DowModManager
         {
             return TextRenderer.MeasureText(c.Text, c.Font).Width;
         }
+        // Подпись (17px) по центру строки, рассчитанной на контрол 24px
+        int RowLbl(int rowY) { return rowY + 4; }
         // «?» вплотную к названию параметра (единый отступ), по центру по вертикали
         HelpDot DotAfter(Control c, string help)
         {
@@ -842,9 +900,15 @@ namespace DowModManager
         {
             loading = true;
             var d = new Settings();
+            // разрешение берём с монитора, на котором открыто окно
+            int sw, sh;
+            ScreenInfo.Get(this, out sw, out sh);
+            if (sw >= 640 && sh >= 480) { d.Width = sw; d.Height = sh; }
             chkWs.Checked = d.Widescreen;
-            numW.Value = d.Width; numH.Value = d.Height;
-            cmbRes.SelectedItem = d.Width + "x" + d.Height;
+            numW.Value = Math.Min(Math.Max(d.Width, 640), 10000);
+            numH.Value = Math.Min(Math.Max(d.Height, 480), 5000);
+            string dp = d.Width + "x" + d.Height;
+            cmbRes.SelectedItem = cmbRes.Items.Contains(dp) ? dp : "другое";
             cmbExe.SelectedItem = d.ExeMode;
             if (radCustom.Enabled) radCustom.Checked = d.TexturesCustom; else radHard.Checked = true;
             chkZoom.Checked = d.Zoom;
@@ -856,7 +920,8 @@ namespace DowModManager
             UpdateRusUi();
             loading = false;
             MarkDirty();
-            Log("Параметры окна возвращены к значениям по умолчанию (на игру пока не влияет — нажмите «Применить»).");
+            Log(string.Format("По умолчанию: разрешение текущего экрана {0}x{1}, widescreen+UI, зум {2}, exe: {3}. "
+                + "На игру пока не влияет — нажмите «Применить».", d.Width, d.Height, d.DistMax, d.ExeMode));
         }
 
         // После отката снимаем все галочки: окно показывает «ничего не стоит»
@@ -998,8 +1063,13 @@ namespace DowModManager
             bool ok3 = s1.SameAs(s2); s2.Zoom = !s2.Zoom; ok3 = ok3 && !s1.SameAs(s2);
             Console.WriteLine("dirty compare: " + (ok3 ? "OK" : "FAIL"));
 
+            int sw, sh;
+            ScreenInfo.Get(null, out sw, out sh);
+            bool ok4 = sw >= 640 && sh >= 480;
+            Console.WriteLine("screen detect: " + (ok4 ? "OK" : "FAIL") + " -> " + sw + "x" + sh);
+
             try { File.Delete(tmp); } catch { }
-            Environment.ExitCode = (ok && ok2 && ok3) ? 0 : 1;
+            Environment.ExitCode = (ok && ok2 && ok3 && ok4) ? 0 : 1;
         }
     }
 }
