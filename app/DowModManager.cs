@@ -530,10 +530,10 @@ namespace DowModManager
 
             // строка 2, левая колонка: разрешение
             var lblRes = Lbl("Разрешение:", colL, RowLbl(wsR2));
-            cmbRes = Combo(colL + 92, wsR2, 104, new object[] { "3440x1440", "2560x1080", "3840x1600", "5120x1440", "2560x1440", "1920x1080", "другое" });
-            numW = Num(colL + 204, wsR2, 60, 640, 10000, S.Width);
-            var lblX = Lbl("×", colL + 270, RowLbl(wsR2));
-            numH = Num(colL + 282, wsR2, 60, 480, 5000, S.Height);
+            cmbRes = Combo(colL + 90, wsR2, 100, new object[] { "3440x1440", "2560x1080", "3840x1600", "5120x1440", "2560x1440", "1920x1080", "другое" });
+            numW = Num(colL + 198, wsR2, 60, 640, 10000, S.Width);
+            var lblX = Lbl("×", colL + 266, RowLbl(wsR2));
+            numH = Num(colL + 284, wsR2, 60, 480, 5000, S.Height);
             string preset = S.Width + "x" + S.Height;
             cmbRes.SelectedItem = cmbRes.Items.Contains(preset) ? preset : "другое";
             cmbRes.SelectedIndexChanged += (s, e) =>
