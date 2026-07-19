@@ -59,8 +59,11 @@ if (-not $Export -and -not $Import -and -not $Preview) {
 # Fade — кромка ломтика, смотрящая в открытый мир: там альфа мягко
 # уходит в 0, чтобы панель растворялась, а не обрывалась хардкатом.
 # 'R' — правая кромка, 'L' — левая; по индексу ломтика.
+# ВНИМАНИЕ к индексам: ломтики 0-based. В текущей раскладке ws2 (инд. 1)
+# приклеен к ws3 (инд. 2) справа — их общий стык НЕ фейдим (иначе шов
+# внутри блока); в мир смотрит ЛЕВЫЙ край ws2.
 $barSlices = @(
-    @{ Base = 'taskbar';      Cuts = @(0.0, 0.278, 0.630, 1.0); Fade = @{ 0 = 'R'; 2 = 'L' } },
+    @{ Base = 'taskbar';      Cuts = @(0.0, 0.278, 0.630, 1.0); Fade = @{ 0 = 'R'; 1 = 'L' } },
     @{ Base = 'taskbar_menu'; Cuts = @(0.0, 0.45, 1.0);         Fade = @{ 0 = 'R'; 1 = 'L' } }
 )
 
@@ -234,12 +237,15 @@ public static class TexAlign {
         }
         return new int[] { x0, y0, x1, y1 };
     }
-    // bbox непрозрачных пикселей
-    public static int[] BBoxAlpha(byte[] px, int w, int h) {
+    // bbox непрозрачных пикселей (порог по альфе настраиваемый:
+    // для габаритов оригинала с фейд-кромками нужен порог 0, иначе
+    // полупрозрачные столбцы фейда выпадают из бокса и арт съезжает)
+    public static int[] BBoxAlpha(byte[] px, int w, int h) { return BBoxAlpha(px, w, h, 16); }
+    public static int[] BBoxAlpha(byte[] px, int w, int h, int thr) {
         int x0 = w, y0 = h, x1 = -1, y1 = -1;
         for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
-            if (px[(y * w + x) * 4 + 3] > 16) {
+            if (px[(y * w + x) * 4 + 3] > thr) {
                 if (x < x0) x0 = x; if (x > x1) x1 = x;
                 if (y < y0) y0 = y; if (y > y1) y1 = y;
             }
@@ -545,13 +551,13 @@ if ($Export) {
                 for ($y = 0; $y -lt $th; $y++) {
                     [Array]::Copy($px, ($y * $tw + $x0) * 4, $buf, $y * $P * 4, $cw * 4)
                 }
-                $side = $null; if ($fade -and $fade.ContainsKey($i)) { $side = $fade[$i] }
-                if ($side) { Apply-Fade $buf $P $th $cw $side }
+                # фейд в PNG НЕ запекаем: это исходники для ручной правки
+                # и якорь габаритов для textures-custom; фейд накладывается
+                # при записи игровых TGA в -Import (и в установщике)
                 $f = Join-Path $outDir ("{0}_ws{1}.png" -f $base, ($i + 1))
                 Save-PngFlipped $buf $P $th $f
                 $count++
-                $fnote = if ($side) { " фейд:$side" } else { '' }
-                Write-Host ("  [OK] {0}\{1}_ws{2}.png  (контент {3}px из {4}px холста){5}" -f $folder, $base, ($i+1), $cw, $P, $fnote) -ForegroundColor Green
+                Write-Host ("  [OK] {0}\{1}_ws{2}.png  (контент {3}px из {4}px холста)" -f $folder, $base, ($i+1), $cw, $P) -ForegroundColor Green
             }
         }
     }
@@ -590,10 +596,23 @@ if ($Import) {
         }
         $outDir = Join-Path $engineDir "Data\art\ui\textures\taskbar\$folder"
         New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+        # фейд мировой кромки — только при записи игрового TGA
+        # (в PNG-исходниках его нет); ломтик определяем по имени файла
+        $fnote = ''
+        if ($png.BaseName -match '^(.+)_ws(\d+)$') {
+            $fbase = $Matches[1]; $fidx = [int]$Matches[2] - 1
+            foreach ($sp in $barSlices) {
+                if ($sp.Base -ne $fbase -or -not $sp.Fade -or -not $sp.Fade.ContainsKey($fidx)) { continue }
+                $cw = [int][Math]::Round($sp.Cuts[$fidx + 1] * 1024) - [int][Math]::Round($sp.Cuts[$fidx] * 1024)
+                if ($cw -gt $w) { $cw = $w }
+                Apply-Fade $px $w $h $cw $sp.Fade[$fidx]
+                $fnote = " фейд:$($sp.Fade[$fidx])"
+            }
+        }
         $tga = Join-Path $outDir ($png.BaseName + '.tga')
         Write-Tga $tga $px $w $h
         $count++
-        Write-Host "  [OK] $folder\$($png.BaseName).tga" -ForegroundColor Green
+        Write-Host "  [OK] $folder\$($png.BaseName).tga$fnote" -ForegroundColor Green
     }
 
     Write-Host "`nПерерисованные текстуры (textures-custom):" -ForegroundColor Cyan

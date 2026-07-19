@@ -603,10 +603,33 @@ Write-Host "Файлов разметки к преобразованию: $($sc
 # Разрезы фоновых текстур баров: границы функциональных зон (доли ширины).
 # Нижний бар: гнездо мини-карты | панель отряда | сетка команд.
 # Верхний бар: плашки ресурсов | (пусто) | полоса кнопок меню.
+# Fade — кромка ломтика, смотрящая в открытый мир: альфа мягко уходит
+# в 0 вместо жёсткого обреза ('R'/'L', индексы ломтиков 0-based).
+# Стык ws2|ws3 (правый блок) не фейдим — он внутренний.
+# Синхронизировано с Edit-BarTextures.ps1.
 $barSlices = @(
-    @{ Art = 'artTaskbar'; Cuts = @(0.0, 0.278, 0.630, 1.0) },
-    @{ Art = 'artMenubar'; Cuts = @(0.0, 0.45, 1.0) }
+    @{ Art = 'artTaskbar'; Cuts = @(0.0, 0.278, 0.630, 1.0); Fade = @{ 0 = 'R'; 1 = 'L' } },
+    @{ Art = 'artMenubar'; Cuts = @(0.0, 0.45, 1.0);         Fade = @{ 0 = 'R'; 1 = 'L' } }
 )
+
+# Плавное затухание альфы на кромке контента [0..cw) внутри буфера P*th
+# (BGRA). $side: 'R' — правая кромка, 'L' — левая. Ширина фейда — доля cw.
+# (идентично Apply-Fade в Edit-BarTextures.ps1)
+function Apply-Fade([byte[]]$buf, [int]$P, [int]$th, [int]$cw, [string]$side, [double]$frac = 0.16) {
+    if (-not $side) { return }
+    $fw = [int]([Math]::Round($cw * $frac))
+    if ($fw -lt 2) { return }
+    for ($x = 0; $x -lt $fw; $x++) {
+        # t: 1 у внутреннего края фейда, 0 у самой кромки
+        $t = ($x + 0.5) / $fw
+        $col = if ($side -eq 'R') { $cw - 1 - $x } else { $x }
+        for ($y = 0; $y -lt $th; $y++) {
+            $o = ($y * $P + $col) * 4 + 3
+            $a = $buf[$o]
+            if ($a -gt 0) { $buf[$o] = [byte][int]([Math]::Round($a * $t)) }
+        }
+    }
+}
 
 # ---------- Вспомогательные функции нарезки ----------
 function Get-Pow2([int]$n) { $p = 1; while ($p -lt $n) { $p *= 2 }; return $p }
@@ -678,7 +701,7 @@ function Set-X($t, [string]$x) {
 # фона заменяем на ломтики-виджеты, которые разъезжаются по углам вместе
 # со своими кнопками. Паддинг до степени двойки компенсируется шириной
 # отрисовки (P/cw), прозрачный хвост свисает за боксом — не виден.
-function Split-BarArt($tree, $entries, [string]$sgaPath, [string]$engineDir, [double[]]$cuts, [string]$artName) {
+function Split-BarArt($tree, $entries, [string]$sgaPath, [string]$engineDir, [double[]]$cuts, [string]$artName, $fadeSpec) {
     $found = Find-Widget $tree $artName
     if (-not $found) { return ,@() }
     $w = $found.Node
@@ -737,6 +760,9 @@ function Split-BarArt($tree, $entries, [string]$sgaPath, [string]$engineDir, [do
             for ($y = 0; $y -lt $th; $y++) {
                 [Array]::Copy($px, ($y * $tw + $m.x0) * 4, $buf, $y * $m.P * 4, $m.cw * 4)
             }
+            if ($fadeSpec -and $fadeSpec.ContainsKey($i)) {
+                Apply-Fade $buf $m.P $th $m.cw $fadeSpec[$i]
+            }
             $f = Join-Path $outDir ("{0}_ws{1}.tga" -f $base, ($i + 1))
             Write-Tga $f $buf $m.P $th
             $written += $f
@@ -774,7 +800,7 @@ foreach ($e in $screens) {
         $texFiles = @()
         if ($name -eq 'gamescreen.screen') {
             foreach ($bs in $barSlices) {
-                $texFiles += Split-BarArt $tree $entries $engineSga.FullName $engineDir $bs.Cuts $bs.Art
+                $texFiles += Split-BarArt $tree $entries $engineSga.FullName $engineDir $bs.Cuts $bs.Art $bs.Fade
             }
         }
         $injected = [ScreenFile]::InjectSizes($tree)
