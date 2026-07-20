@@ -415,8 +415,10 @@ function Process-CustomTextures([bool]$writeTga) {
     $prevDir = Join-Path $CustomDir '_preview'
     New-Item -ItemType Directory -Force -Path $prevDir | Out-Null
     $count = 0
+    # берём только файлы-ломтики (<base>_wsN.png); всё прочее в папке —
+    # исходники/референсы (например *-original-art.png), их не трогаем
     $pngs = Get-ChildItem $CustomDir -Recurse -Filter '*.png' |
-            Where-Object { $_.FullName -notlike '*\_preview\*' }
+            Where-Object { $_.FullName -notlike '*\_preview\*' -and $_.BaseName -match '_ws\d+$' }
     foreach ($png in $pngs) {
         $race = Split-Path (Split-Path $png.FullName -Parent) -Leaf
         $name = $png.BaseName
