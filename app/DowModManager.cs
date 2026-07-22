@@ -229,6 +229,8 @@ namespace DowModManager
     class GameStatus
     {
         public bool WidescreenPatched, UiInstalled, TexturesCustom, ZoomInstalled, LocaleRussian, LangRussian;
+        public bool LocaleEnglish;      // английская локаль на месте (нужна, чтобы вернуть язык)
+        public string LocalesFound = "";// какие локали реально стоят, через запятую
         public int Width, Height, DistMax;
         public bool Known;   // удалось ли прочитать состояние
 
@@ -241,6 +243,8 @@ namespace DowModManager
             s.TexturesCustom    = Settings.JBool(json, "TexturesCustom", false);
             s.ZoomInstalled     = Settings.JBool(json, "ZoomInstalled", false);
             s.LocaleRussian     = Settings.JBool(json, "LocaleRussian", false);
+            s.LocaleEnglish     = Settings.JBool(json, "LocaleEnglish", false);
+            s.LocalesFound      = Settings.JStr(json, "LocalesFound", "");
             s.LangRussian       = Settings.JBool(json, "LangRussian", false);
             s.Width             = Settings.JInt(json, "Width", 0);
             s.Height            = Settings.JInt(json, "Height", 0);
@@ -390,13 +394,24 @@ namespace DowModManager
         public const string Russian =
             "Ставит русский язык: прописывает [lang:russian] в W40k.ini (с резервной копией).\r\n" +
             "\r\n" +
-            "Самих файлов русификатора в игре по умолчанию нет — их нужно скачать\r\n" +
-            "отдельно (ссылки в README) и указать архив ниже: менеджер распакует его\r\n" +
-            "в папку игры. В репозитории этих файлов нет: это чужой контент,\r\n" +
-            "раздавать его вместе с модом нельзя.\r\n" +
+            "Менеджер проверяет, какие локали РЕАЛЬНО лежат в игре (папки\r\n" +
+            "<модуль>\\Locale\\<Язык> с файлами .ucs/.sga), и пишет это в строке\r\n" +
+            "состояния. Пустая папка локали за установленную не считается.\r\n" +
             "\r\n" +
-            "Если русификатор уже стоял до менеджера — он это увидит сам,\r\n" +
-            "и архив указывать не потребуется.";
+            "Защита от вылета: язык переключается ТОЛЬКО на локаль, которая\r\n" +
+            "действительно есть. Если русификатор заменил английскую локаль,\r\n" +
+            "выключить русский нельзя — с несуществующей локалью игра падает\r\n" +
+            "на старте. Менеджер это заблокирует и не тронет W40k.ini;\r\n" +
+            "вернуть английский можно проверкой целостности файлов в Steam.\r\n" +
+            "\r\n" +
+            "Если русификатора нет — нажмите «Скачать русификатор…» (откроется\r\n" +
+            "гайд со ссылками), затем «Указать архив…». Поддерживаются zip, rar,\r\n" +
+            "7z и другие форматы (нужен установленный 7-Zip или WinRAR; zip\r\n" +
+            "распаковывается и без них). Лишняя папка-обёртка внутри архива\r\n" +
+            "снимается автоматически.\r\n" +
+            "\r\n" +
+            "Самих файлов русификатора в репозитории нет: это чужой контент,\r\n" +
+            "раздавать его вместе с модом нельзя.";
 
         public const string GamePath =
             "Папка, где лежит W40k.exe (например ...\\steamapps\\common\\Dawn of War Gold).\r\n" +
@@ -420,6 +435,9 @@ namespace DowModManager
         CheckBox chkWs, chkZoom, chkRus;
         RadioButton radCustom, radHard;
         Button btnApply, btnPlay, btnRestore, btnDefaults, btnRusBrowse, btnLogToggle, btnLaunchOnly;
+        Button btnRusGet;
+        // Steam-гайд со ссылками на архив русификатора (тот же, что в README)
+        const string RusGuideUrl = "https://steamcommunity.com/sharedfiles/filedetails/?id=3421728842";
         Label lblRusState, lblStatus;
         Panel header;
         ToolTip tip;
@@ -578,7 +596,7 @@ namespace DowModManager
             y += 64;
 
             // --- Язык ---
-            var grpLang = Group("Язык", 12, y, 660, 88);
+            var grpLang = Group("Язык", 12, y, 660, 120);
             chkRus = Check("Русский язык", 14, 22, 0);
             chkRus.Checked = S.Russian;
             chkRus.CheckedChanged += (s, e) => { UpdateRusUi(); if (!loading) MarkDirty(); };
@@ -591,7 +609,13 @@ namespace DowModManager
             tip.SetToolTip(txtRus, "Архив русификатора (zip/rar/7z), скачанный по ссылкам из README.\r\nБудет распакован в папку игры при нажатии «Применить».");
             btnRusBrowse = Btn("Указать архив…", 494, 50, 150, 26, (s, e) =>
             {
-                using (var d = new OpenFileDialog { Title = "Архив русификатора", Filter = "Архивы (*.zip;*.rar;*.7z)|*.zip;*.rar;*.7z|Все файлы (*.*)|*.*" })
+                using (var d = new OpenFileDialog
+                {
+                    Title = "Архив русификатора",
+                    Filter = "Архивы (*.zip;*.rar;*.7z)|*.zip;*.rar;*.7z"
+                           + "|Все поддерживаемые|*.zip;*.rar;*.7z;*.tar;*.gz;*.bz2;*.xz;*.cab;*.iso;*.001"
+                           + "|Все файлы (*.*)|*.*"
+                })
                     if (d.ShowDialog() == DialogResult.OK)
                     {
                         rusArchive = d.FileName;
@@ -599,9 +623,21 @@ namespace DowModManager
                         MarkDirty();
                     }
             });
-            grpLang.Controls.AddRange(new Control[] { chkRus, dotRus, lblRusState, txtRus, btnRusBrowse });
+
+            // Уйти за русификатором прямо из приложения (ссылка — из README).
+            btnRusGet = Btn("Скачать русификатор…", 14, 84, 190, 26, (s, e) =>
+            {
+                try { System.Diagnostics.Process.Start(RusGuideUrl); }
+                catch (Exception ex) { Log("Не удалось открыть браузер: " + ex.Message); }
+            });
+            tip.SetToolTip(btnRusGet,
+                "Откроет в браузере Steam-гайд со ссылками на архив русификатора\r\n" +
+                "(зеркала Playground / Google Drive / Яндекс.Диск / Облако Mail.ru).\r\n" +
+                "Скачайте архив, затем нажмите «Указать архив…».");
+
+            grpLang.Controls.AddRange(new Control[] { chkRus, dotRus, lblRusState, txtRus, btnRusBrowse, btnRusGet });
             Controls.Add(grpLang);
-            y += 96;
+            y += 128;
 
             // --- Кнопки ---
             btnApply = Btn("Применить", 12, y, 140, 34, (s, e) => Run("apply"));
@@ -787,26 +823,60 @@ namespace DowModManager
                 radCustom.Enabled = false;
         }
 
+        // Показывает РЕАЛЬНОЕ состояние локалей — всегда, независимо от галки.
+        // Раньше при снятой галке строка пустела, и было не понять, стоит ли
+        // русификатор вообще. Плюс отдельно предупреждаем про отсутствующую
+        // английскую локаль: именно из-за неё игра вылетала при выключении
+        // русского (движок падает, если [lang:X] указывает в никуда).
         void UpdateRusUi()
         {
             bool on = chkRus.Checked;
-            bool haveLocale = status.LocaleRussian;
-            if (!on)
+            bool haveRus = status.LocaleRussian;
+            bool haveEng = status.LocaleEnglish;
+
+            // цвета, читаемые и в светлой, и в тёмной теме
+            Color okColor   = Color.FromArgb(60, 160, 60);
+            Color warnColor = Color.FromArgb(210, 120, 20);
+
+            if (!status.Known)
             {
-                lblRusState.Text = "";
-                txtRus.Enabled = false; btnRusBrowse.Enabled = false;
+                lblRusState.Text = "Состояние игры ещё не прочитано.";
+                lblRusState.ForeColor = th.Muted;
+                txtRus.Enabled = true; btnRusBrowse.Enabled = true;
                 return;
             }
-            if (haveLocale)
+
+            string found = string.IsNullOrEmpty(status.LocalesFound)
+                ? "локалей не найдено" : "в игре: " + status.LocalesFound;
+
+            if (haveRus)
             {
-                lblRusState.Text = "Файлы русификатора найдены в игре — архив не нужен.";
+                lblRusState.Text = "Русификатор установлен (" + found + ").";
+                lblRusState.ForeColor = okColor;
                 txtRus.Enabled = false; btnRusBrowse.Enabled = false;
             }
             else
             {
-                lblRusState.Text = "Файлы русификатора не найдены — укажите скачанный архив (ссылки в README).";
+                lblRusState.Text = "Русификатора нет (" + found + ") — укажите архив или скачайте.";
+                lblRusState.ForeColor = th.Muted;
                 txtRus.Enabled = true; btnRusBrowse.Enabled = true;
             }
+
+            // Предупреждение о невозможности вернуть английский
+            if (haveRus && !haveEng)
+            {
+                lblRusState.Text = "Русификатор установлен, английской локали нет.";
+                lblRusState.ForeColor = warnColor;
+                tip.SetToolTip(lblRusState,
+                    "Английская локаль в игре пуста или удалена (её заменил русификатор).\r\n" +
+                    "Поэтому выключить русский язык нельзя: игра вылетит при запуске.\r\n" +
+                    "Менеджер это заблокирует и не станет портить W40k.ini.\r\n\r\n" +
+                    "Чтобы вернуть английский — проверьте целостность файлов игры в Steam\r\n" +
+                    "(Свойства -> Установленные файлы -> Проверить целостность).");
+                if (!on)
+                    lblRusState.Text = "Выключить русский нельзя: английской локали нет (наведите для деталей).";
+            }
+            else tip.SetToolTip(lblRusState, "");
         }
 
         void SyncFromUi()
@@ -1065,12 +1135,19 @@ namespace DowModManager
                 && b.ExeMode == a.ExeMode && b.TexturesCustom == a.TexturesCustom;
             Console.WriteLine("settings roundtrip: " + (ok ? "OK" : "FAIL"));
 
-            string js = "{\"GamePath\":\"D:\\\\g\",\"WidescreenPatched\":true,\"UiInstalled\":true,\"TexturesCustom\":false,\"ZoomInstalled\":true,\"DistMax\":76,\"LocaleRussian\":true,\"LangRussian\":false,\"Width\":3440,\"Height\":1440}";
+            string js = "{\"GamePath\":\"D:\\\\g\",\"WidescreenPatched\":true,\"UiInstalled\":true,\"TexturesCustom\":false,\"ZoomInstalled\":true,\"DistMax\":76,\"LocaleRussian\":true,\"LocaleEnglish\":false,\"LocalesFound\":\"Russian\",\"LangRussian\":false,\"Width\":3440,\"Height\":1440}";
             var st = GameStatus.Parse(js);
             bool ok2 = st.Known && st.WidescreenPatched && st.UiInstalled && !st.TexturesCustom
                 && st.ZoomInstalled && st.DistMax == 76 && st.LocaleRussian && !st.LangRussian
                 && st.Width == 3440 && st.Height == 1440;
             Console.WriteLine("status parse: " + (ok2 ? "OK" : "FAIL"));
+
+            // локали: сценарий «русификатор есть, английской локали нет»
+            // (именно он раньше приводил к вылету при выключении русского)
+            bool ok2b = st.LocaleRussian && !st.LocaleEnglish && st.LocalesFound == "Russian";
+            var stEmpty = GameStatus.Parse("{\"LocaleRussian\":false,\"LocaleEnglish\":true,\"LocalesFound\":\"English\"}");
+            ok2b = ok2b && !stEmpty.LocaleRussian && stEmpty.LocaleEnglish && stEmpty.LocalesFound == "English";
+            Console.WriteLine("locale state parse: " + (ok2b ? "OK" : "FAIL"));
 
             var s1 = new Settings(); var s2 = new Settings();
             bool ok3 = s1.SameAs(s2); s2.Zoom = !s2.Zoom; ok3 = ok3 && !s1.SameAs(s2);

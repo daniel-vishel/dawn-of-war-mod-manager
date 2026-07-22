@@ -31,6 +31,7 @@ param(
     [switch]$LaunchOnly,           # просто запустить игру, без применения настроек
     [switch]$RestoreAll,
     [switch]$Status,
+    [switch]$LocaleInfo,           # диагностика: какие локали реально стоят в игре
     [string]$GamePath = '',
     [string]$RussianArchive = ''   # архив русификатора (zip/rar/7z) для установки
 )
@@ -84,8 +85,11 @@ function Find-GamePath {
         "E:\Steam\steamapps\common\Dawn of War Gold",
         "E:\SteamLibrary\steamapps\common\Dawn of War Gold"
     )
+    # Join-Path бросает исключение, если диска из кандидата нет в системе
+    # (а при ErrorActionPreference='Stop' это роняло весь скрипт на машинах
+    # без диска E:). Поэтому склеиваем строкой, а не Join-Path.
     foreach ($c in $candidates) {
-        if (Test-Path (Join-Path $c 'W40k.exe')) { return $c }
+        if (Test-Path -LiteralPath ($c.TrimEnd('\') + '\W40k.exe')) { return $c }
     }
     try {
         $steam = (Get-ItemProperty 'HKCU:\Software\Valve\Steam' -ErrorAction Stop).SteamPath
@@ -122,6 +126,49 @@ function Get-EngineDir([string]$gp) {
 
 # ---------- Определение текущего состояния игры ----------
 # Читает реальные факты с диска, а не только наш конфиг: если мод
+# ---------- Локали ----------
+# Возвращает хеш: имя локали -> @{ Name; Paths; Ucs; Sga; Files }.
+# Локали лежат в <игра>\<модуль>\Locale\<Язык>\ (W40k, WXP, DXP2, Engine)
+# и/или в <игра>\Locale\<Язык>\. Сканируем только эти места — полный
+# рекурсивный обход папки игры был медленным и всё равно неточным.
+function Get-LocaleState([string]$gp) {
+    $res = @{}
+    if (-not $gp -or -not (Test-Path $gp)) { return $res }
+    $localeDirs = New-Object System.Collections.Generic.List[string]
+    $rootLoc = Join-Path $gp 'Locale'
+    if (Test-Path $rootLoc) { $localeDirs.Add($rootLoc) }
+    foreach ($d in Get-ChildItem -Path $gp -Directory -ErrorAction SilentlyContinue) {
+        $p = Join-Path $d.FullName 'Locale'
+        if (Test-Path $p) { $localeDirs.Add($p) }
+    }
+    foreach ($ld in $localeDirs) {
+        foreach ($lang in Get-ChildItem -Path $ld -Directory -ErrorAction SilentlyContinue) {
+            $name = $lang.Name
+            $files = @(Get-ChildItem $lang.FullName -Recurse -File -ErrorAction SilentlyContinue)
+            if (-not $res.ContainsKey($name)) {
+                $res[$name] = @{ Name = $name; Paths = @(); Ucs = 0; Sga = 0; Files = 0 }
+            }
+            $res[$name].Paths += $lang.FullName
+            $res[$name].Ucs   += @($files | Where-Object { $_.Extension -ieq '.ucs' }).Count
+            $res[$name].Sga   += @($files | Where-Object { $_.Extension -ieq '.sga' }).Count
+            $res[$name].Files += $files.Count
+        }
+    }
+    return $res
+}
+
+# Локаль считается пригодной, только если в ней есть реальное содержимое
+# (.ucs с текстами и/или .sga). Пустая папка Locale\Russian — не русификатор:
+# именно на такой movie игра и вылетала, когда язык переключали на неё.
+function Get-UsableLocales($localeState) {
+    $out = @()
+    foreach ($k in $localeState.Keys) {
+        $v = $localeState[$k]
+        if (($v.Ucs + $v.Sga) -gt 0) { $out += $v.Name }
+    }
+    return ($out | Sort-Object)
+}
+
 # (или русификатор) поставлен раньше/вручную — это будет видно.
 function Get-Status([string]$gp) {
     $st = [ordered]@{
@@ -133,7 +180,9 @@ function Get-Status([string]$gp) {
         TexturesCustom    = $false
         ZoomInstalled     = $false
         DistMax           = 0
-        LocaleRussian     = $false   # файлы русификатора лежат в игре
+        LocaleRussian     = $false   # файлы русификатора реально лежат в игре
+        LocaleEnglish     = $false   # английская локаль на месте (нужна для отката языка)
+        LocalesFound      = ''       # список найденных локалей через запятую
         LangRussian       = $false   # в W40k.ini стоит [lang:russian]
         BackupExists      = $false
     }
@@ -175,17 +224,13 @@ function Get-Status([string]$gp) {
         if ($ct -match '(?im)^\s*DistMax\s*=\s*([\d\.]+)') { $st.DistMax = [double]$Matches[1] }
     }
 
-    # русификатор: файлы локализации в игре
-    $loc = @(Get-ChildItem -Path $gp -Recurse -Directory -Filter 'Russian' -ErrorAction SilentlyContinue |
-             Where-Object { $_.Parent.Name -ieq 'Locale' })
-    if ($loc.Count -eq 0) {
-        # часть сборок кладёт локаль архивами W40kDataLoc/Russian*.sga
-        $locSga = @(Get-ChildItem -Path $gp -Recurse -Filter '*.sga' -ErrorAction SilentlyContinue |
-                    Where-Object { $_.Name -match '(?i)russian' })
-        $st.LocaleRussian = $locSga.Count -gt 0
-    } else {
-        $st.LocaleRussian = $true
-    }
+    # русификатор: какие локали РЕАЛЬНО стоят в игре (с содержимым)
+    $loc = Get-LocaleState $gp
+    $usable = @(Get-UsableLocales $loc)
+    $st.LocalesFound  = ($usable -join ', ')
+    $st.LocaleRussian = [bool](@($usable | Where-Object { $_ -ieq 'Russian' }).Count)
+    $st.LocaleEnglish = [bool](@($usable | Where-Object { $_ -ieq 'English' }).Count)
+
     $wini = Join-Path $gp 'W40k.ini'
     if (Test-Path $wini) {
         $wt = Get-Content $wini -Raw
@@ -207,27 +252,92 @@ function Invoke-Child([string]$script, [hashtable]$scriptArgs) {
 }
 
 # ---------- Русификатор ----------
+# Ищет распаковщик: 7-Zip (реестр, PATH, типовые папки), затем WinRAR.
+# 7-Zip умеет всё (zip/rar/7z), WinRAR — запасной вариант.
+function Find-Extractor {
+    $cands = New-Object System.Collections.Generic.List[string]
+    foreach ($rk in @('HKLM:\SOFTWARE\7-Zip','HKLM:\SOFTWARE\WOW6432Node\7-Zip','HKCU:\SOFTWARE\7-Zip')) {
+        try {
+            $p = (Get-ItemProperty $rk -ErrorAction Stop).Path
+            if ($p) { $cands.Add((Join-Path $p '7z.exe')) }
+        } catch {}
+    }
+    $cands.Add("$env:ProgramFiles\7-Zip\7z.exe")
+    $cands.Add("${env:ProgramFiles(x86)}\7-Zip\7z.exe")
+    try { $c = (Get-Command 7z.exe -ErrorAction Stop).Source; if ($c) { $cands.Add($c) } } catch {}
+    foreach ($c in $cands) { if ($c -and (Test-Path $c)) { return @{ Exe = $c; Kind = '7z' } } }
+
+    $rar = New-Object System.Collections.Generic.List[string]
+    foreach ($rk in @('HKLM:\SOFTWARE\WinRAR','HKLM:\SOFTWARE\WOW6432Node\WinRAR','HKCU:\SOFTWARE\WinRAR')) {
+        try {
+            $p = (Get-ItemProperty $rk -ErrorAction Stop).exe64
+            if ($p) { $rar.Add($p) }
+        } catch {}
+    }
+    $rar.Add("$env:ProgramFiles\WinRAR\WinRAR.exe")
+    $rar.Add("${env:ProgramFiles(x86)}\WinRAR\WinRAR.exe")
+    $rar.Add("$env:ProgramFiles\WinRAR\UnRAR.exe")
+    foreach ($c in $rar) { if ($c -and (Test-Path $c)) { return @{ Exe = $c; Kind = 'rar' } } }
+    return $null
+}
+
+# Распаковывает архив русификатора и раскладывает его по папке игры.
+# Архивы часто завёрнуты в лишнюю папку ("Русификатор\W40k\..."), поэтому
+# сначала распаковываем во временный каталог, находим уровень, на котором
+# лежат папки модулей игры (W40k/Engine/Locale/...), и копируем уже оттуда.
 function Install-RussianArchive([string]$gp, [string]$archive) {
     if (-not (Test-Path $archive)) { Write-Log "[!] Архив русификатора не найден: $archive" 'Red'; return $false }
     Write-Log "Устанавливаю русификатор из архива: $archive" 'Cyan'
     $ext = [IO.Path]::GetExtension($archive).ToLowerInvariant()
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("dow-rus-" + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Force -Path $tmp | Out-Null
     try {
-        if ($ext -eq '.zip') {
-            Expand-Archive -Path $archive -DestinationPath $gp -Force
-        } else {
-            $sevenZip = @("C:\Program Files\7-Zip\7z.exe", "C:\Program Files (x86)\7-Zip\7z.exe") |
-                        Where-Object { Test-Path $_ } | Select-Object -First 1
-            if (-not $sevenZip) {
-                Write-Log "[!] Для архивов $ext нужен 7-Zip (не найден). Распакуйте архив в папку игры вручную или установите 7-Zip." 'Red'
-                return $false
+        $ex = Find-Extractor
+        $done = $false
+        if ($ex) {
+            if ($ex.Kind -eq '7z') {
+                & $ex.Exe x $archive "-o$tmp" -y 2>&1 | Out-Null
+            } else {
+                & $ex.Exe x -y $archive "$tmp\" 2>&1 | Out-Null
             }
-            & $sevenZip x $archive "-o$gp" -y | Out-Null
+            $done = (@(Get-ChildItem $tmp -Recurse -File -ErrorAction SilentlyContinue).Count -gt 0)
+            if ($done) { Write-Log "Распаковано через $(Split-Path $ex.Exe -Leaf)." 'DarkGray' }
         }
-        Write-Log "Файлы русификатора распакованы в папку игры." 'Green'
+        if (-not $done -and $ext -eq '.zip') {
+            Expand-Archive -Path $archive -DestinationPath $tmp -Force
+            $done = $true
+            Write-Log "Распаковано встроенным Expand-Archive." 'DarkGray'
+        }
+        if (-not $done) {
+            Write-Log "[!] Не нашёл, чем распаковать $ext. Установите 7-Zip (https://www.7-zip.org)" 'Red'
+            Write-Log "    или распакуйте архив в папку игры вручную." 'Red'
+            return $false
+        }
+
+        # найти уровень с папками игры (снять лишнюю обёртку)
+        $src = $tmp
+        for ($i = 0; $i -lt 4; $i++) {
+            $hasGameDirs = @(Get-ChildItem $src -Directory -ErrorAction SilentlyContinue |
+                             Where-Object { $_.Name -imatch '^(W40k|WXP|DXP2|DXP3|Engine|Locale)$' }).Count -gt 0
+            if ($hasGameDirs) { break }
+            $kids = @(Get-ChildItem $src -Directory -ErrorAction SilentlyContinue)
+            $files = @(Get-ChildItem $src -File -ErrorAction SilentlyContinue)
+            if ($kids.Count -eq 1 -and $files.Count -eq 0) { $src = $kids[0].FullName } else { break }
+        }
+        if ($src -ne $tmp) { Write-Log "Снята лишняя папка-обёртка внутри архива." 'DarkGray' }
+
+        Copy-Item -Path (Join-Path $src '*') -Destination $gp -Recurse -Force
+        $n = @(Get-ChildItem $src -Recurse -File -ErrorAction SilentlyContinue).Count
+        Write-Log "Файлы русификатора скопированы в папку игры (файлов: $n)." 'Green'
+
+        $after = @(Get-UsableLocales (Get-LocaleState $gp))
+        Write-Log "Локали в игре после установки: $($after -join ', ')" 'Green'
         return $true
     } catch {
         Write-Log "[!] Не удалось распаковать архив: $($_.Exception.Message)" 'Red'
         return $false
+    } finally {
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -236,6 +346,27 @@ function Set-GameLanguage([string]$gp, [bool]$russian) {
     $target = if ($russian) { 'russian' } else { 'english' }
     if (-not (Test-Path $ini)) {
         Write-Log "[!] W40k.ini не найден — язык не изменён (файл создаётся после первого запуска игры)." 'Yellow'
+        return
+    }
+
+    # ЗАЩИТА ОТ ВЫЛЕТА. Движок падает на старте, если [lang:X] указывает на
+    # локаль, которой в игре нет. Классический случай: русификатор заменил
+    # английскую локаль, потом язык вернули на english — и игра вылетела.
+    # Поэтому переключаем только на локаль, которая реально есть с содержимым.
+    $usable = @(Get-UsableLocales (Get-LocaleState $gp))
+    if ($usable.Count -eq 0) {
+        Write-Log "[!] В игре не найдено ни одной локали с содержимым — язык не трогаю (иначе игра вылетит)." 'Red'
+        return
+    }
+    if (-not (@($usable | Where-Object { $_ -ieq $target }).Count)) {
+        Write-Log "[!] Локаль '$target' в игре отсутствует (есть: $($usable -join ', '))." 'Red'
+        Write-Log "    Язык НЕ переключён — с несуществующей локалью игра вылетает при запуске." 'Red'
+        if ($target -eq 'english') {
+            Write-Log "    Похоже, русификатор заменил английскую локаль. Чтобы вернуть английский," 'Yellow'
+            Write-Log "    проверьте целостность файлов игры в Steam (Свойства -> Локальные файлы)." 'Yellow'
+        } else {
+            Write-Log "    Установите русификатор (архив) — тогда язык переключится." 'Yellow'
+        }
         return
     }
     $bak = "$ini.wsbak"
@@ -355,6 +486,31 @@ if ($Status) {
     Get-Status $gp | ConvertTo-Json -Compress
     exit 0
 }
+if ($LocaleInfo) {
+    $gp = Resolve-GamePath
+    if (-not $gp) { Write-Host "Папка игры не найдена." -ForegroundColor Red; exit 1 }
+    Write-Host "Игра: $gp" -ForegroundColor Cyan
+    $ls = Get-LocaleState $gp
+    if ($ls.Keys.Count -eq 0) {
+        Write-Host "Локалей не найдено вообще (<игра>\<модуль>\Locale\<Язык>)." -ForegroundColor Red
+    } else {
+        foreach ($k in ($ls.Keys | Sort-Object)) {
+            $v = $ls[$k]
+            $mark = if (($v.Ucs + $v.Sga) -gt 0) { 'OK ' } else { 'ПУСТО' }
+            Write-Host ("[{0}] {1}: файлов={2}, .ucs={3}, .sga={4}" -f $mark, $v.Name, $v.Files, $v.Ucs, $v.Sga) -ForegroundColor Green
+            foreach ($p in $v.Paths) { Write-Host "        $p" -ForegroundColor DarkGray }
+        }
+    }
+    Write-Host "Пригодные локали: $((Get-UsableLocales $ls) -join ', ')" -ForegroundColor Cyan
+    $wini = Join-Path $gp 'W40k.ini'
+    if (Test-Path $wini) {
+        $m = [regex]::Match((Get-Content $wini -Raw), '(?i)\[lang:\s*([^\]\s]+)\s*\]')
+        Write-Host ("W40k.ini: " + $(if ($m.Success) { "[lang:$($m.Groups[1].Value)]" } else { "строки [lang:...] нет" })) -ForegroundColor Cyan
+    } else { Write-Host "W40k.ini не найден (создаётся после первого запуска игры)." -ForegroundColor Yellow }
+    $ex = Find-Extractor
+    Write-Host ("Распаковщик архивов: " + $(if ($ex) { $ex.Exe } else { "НЕ НАЙДЕН (нужен 7-Zip для .rar/.7z)" })) -ForegroundColor Cyan
+    exit 0
+}
 if ($RestoreAll) { Restore-Everything; exit 0 }
 if ($LaunchOnly) { Launch-Game; exit 0 }   # запуск без применения настроек
 if ($Apply -or $Launch) {
@@ -369,6 +525,7 @@ Write-Host @"
 
 Консольные режимы:
   -Status       текущее состояние игры (JSON)
+  -LocaleInfo   какие локали реально стоят в игре (диагностика русификатора)
   -Apply        применить настройки из launcher-settings.json
   -Launch       применить и запустить игру
   -RestoreAll   полный откат
