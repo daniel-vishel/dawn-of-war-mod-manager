@@ -149,7 +149,7 @@ namespace DowModManager
         public int Width = 3440;
         public int Height = 1440;
         public bool Widescreen = true;         // rendering patch + UI, one bundle
-        public bool TexturesCustom = true;     // true = repainted art, false = hard-cut
+        public bool TexturesCustom = false;    // repainted art is a work in progress; hard-cut only
         public bool Zoom = true;
         public int DistMax = 76;
         public bool Russian = false;
@@ -177,7 +177,11 @@ namespace DowModManager
                 s.Width          = JInt(t, "Width", s.Width);
                 s.Height         = JInt(t, "Height", s.Height);
                 s.Widescreen     = JBool(t, "Widescreen", s.Widescreen);
-                s.TexturesCustom = JBool(t, "TexturesCustom", s.TexturesCustom);
+                // Deliberately not read from the file: the repainted-textures
+                // mode is a work in progress and stays off. An older
+                // launcher-settings.json that still carries true would otherwise
+                // leave the window dirty against a mode the UI cannot select.
+                s.TexturesCustom = false;
                 s.Zoom           = JBool(t, "Zoom", s.Zoom);
                 s.DistMax        = JInt(t, "DistMax", s.DistMax);
                 s.Russian        = JBool(t, "Russian", s.Russian);
@@ -379,13 +383,17 @@ namespace DowModManager
         public const string Textures =
             "Текстуры нижней панели управления:\r\n" +
             "\r\n" +
-            "  • дорисованные — сторонние текстуры с плавным/аккуратным краем\r\n" +
-            "    (лежат в ui-unstretch\\textures-custom; на данный момент реализованы\r\n" +
-            "    только для космического десанта).\r\n" +
+            "  • жёсткая обрезка — стандартные текстуры игры: они обрезаны по границе\r\n" +
+            "    с картой, части раздвигаются по углам, и на стыках виден резкий обрыв\r\n" +
+            "    картинки когда-то цельной панели. Сейчас это единственный режим.\r\n" +
             "\r\n" +
-            "  • жёсткая обрезка — стандартные текстуры: они обрезаны по границе с картой,\r\n" +
-            "    части раздвигаются по углам, и на стыках виден резкий обрыв картинки\r\n" +
-            "    когда-то цельной панели.";
+            "  • дорисованные — В РАЗРАБОТКЕ, выбор заблокирован.\r\n" +
+            "    Идея: панель с плавным, аккуратным краем вместо резкого среза.\r\n" +
+            "    Готового арта в репозитории нет и не будет: перерисованные\r\n" +
+            "    текстуры делаются на основе игровых, а это чужой контент —\r\n" +
+            "    раздавать его вместе с модом нельзя.\r\n" +
+            "    Механика в скриптах уже есть (Edit-BarTextures.ps1: -Export,\r\n" +
+            "    -Preview, -Import), так что свой арт подключить можно вручную.";
 
         public const string Zoom =
             "Отодвигает максимальный отвод камеры колёсиком (DistMax; оригинал 38).\r\n" +
@@ -573,9 +581,20 @@ namespace DowModManager
             // row 3: the bottom command panel
             var lblTex = Lbl("Нижняя панель управления:", colL, RowLbl(wsR3));
             var dotTex = DotAfter(lblTex, Help.Textures);
-            radCustom = Radio("дорисованные", dotTex.Right + 10, wsR3 + 1, 130);
-            radHard = Radio("жёсткая обрезка", radCustom.Right + 12, wsR3 + 1, 150);
-            radCustom.Checked = S.TexturesCustom; radHard.Checked = !S.TexturesCustom;
+            // "Repainted" is a work in progress and is deliberately locked out:
+            // the feature needs artwork derived from the game textures, which is
+            // third-party content and is not shipped here. The scripts still
+            // support it (Edit-BarTextures.ps1), so custom art can be wired in
+            // by hand; the manager just does not offer it as a choice yet.
+            radHard = Radio("жёсткая обрезка", dotTex.Right + 10, wsR3 + 1, 150);
+            radCustom = Radio("дорисованные (в разработке)", radHard.Right + 12, wsR3 + 1, 200);
+            radHard.Checked = true;
+            radCustom.Checked = false;
+            radCustom.Enabled = false;
+            tip.SetToolTip(radCustom, "Функция в разработке — выбор заблокирован.\r\n" +
+                "Готового арта в репозитории нет: он делается на основе игровых текстур,\r\n" +
+                "а это чужой контент. Подключить свой можно вручную через\r\n" +
+                "ui-unstretch\\Edit-BarTextures.ps1 (-Export / -Preview / -Import).");
             radCustom.CheckedChanged += (s, e) => { if (!loading) MarkDirty(); };
 
             grpWs.Controls.AddRange(new Control[] { chkWs, dotWs, lblRes, cmbRes, numW, lblX, numH,
@@ -691,11 +710,6 @@ namespace DowModManager
             UpdateRusUi();
             ApplyTheme();
 
-            if (!Directory.Exists(Path.Combine(root, @"ui-unstretch\textures-custom")))
-            {
-                radCustom.Enabled = false; radHard.Checked = true;
-                Log("textures-custom не найдены — доступна только жёсткая обрезка.");
-            }
             if (!File.Exists(launcher))
                 Log("[!] Не найден DoW-Launcher.ps1 рядом с приложением (" + root + ").");
         }
@@ -818,10 +832,9 @@ namespace DowModManager
         void ToggleWs()
         {
             bool on = chkWs.Checked;
-            foreach (Control c in new Control[] { cmbRes, numW, numH, radCustom, radHard, cmbExe })
+            foreach (Control c in new Control[] { cmbRes, numW, numH, radHard, cmbExe })
                 c.Enabled = on;
-            if (on && !Directory.Exists(Path.Combine(root, @"ui-unstretch\textures-custom")))
-                radCustom.Enabled = false;
+            radCustom.Enabled = false;   // work in progress, never selectable
         }
 
         // Always reports the REAL locale state, whether or not the box is

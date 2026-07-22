@@ -11,7 +11,7 @@
 #  Features:
 #   - game folder selection (auto-detected or manual);
 #   - widescreen for a chosen resolution plus the unstretched UI;
-#   - bar textures: repainted (textures-custom) or hard-cut;
+#   - bar textures: hard-cut only (the repainted mode is a work in progress);
 #   - extended camera zoom (DistMax);
 #   - Russian language (install the pack from an archive + [lang:russian]);
 #   - detection of what is already installed (-Status);
@@ -47,7 +47,7 @@ $S = [ordered]@{
     Width          = 3440
     Height         = 1440
     Widescreen     = $true    # rendering patch + UI, installed as one bundle
-    TexturesCustom = $true    # true = repainted art, false = hard-cut slices
+    TexturesCustom = $false   # repainted art is a work in progress; hard-cut only
     Zoom           = $true
     DistMax        = 76
     Russian        = $false
@@ -413,15 +413,18 @@ function Apply-Settings {
         Write-Log "-- Нерастянутый UI..." 'Cyan'
         Invoke-Child 'ui-unstretch\Install-UnstretchedUI.ps1' @{ Width = [int]$S.Width; Height = [int]$S.Height; GamePath = $gp }
 
+        # Repainted textures are a work in progress: the mode needs artwork
+        # derived from the game files, which is third-party content and is not
+        # shipped here. Only the hard-cut path runs. The machinery itself is
+        # still in ui-unstretch\Edit-BarTextures.ps1 for wiring up custom art by
+        # hand (-Export / -Preview / -Import).
         if ($S.TexturesCustom) {
-            Write-Log "-- Текстуры: дорисованные (textures-custom)..." 'Cyan'
-            Invoke-Child 'ui-unstretch\Edit-BarTextures.ps1' @{ Import = $true; GamePath = $gp }
-            New-Item -ItemType Directory -Force -Path (Split-Path $marker -Parent) | Out-Null
-            Set-Content -Path $marker -Value 'custom' -Encoding ASCII
+            Write-Log "-- Текстуры: режим «дорисованные» в разработке — ставлю жёсткую обрезку." 'Yellow'
+            Write-Log "   Свой арт можно подключить вручную: ui-unstretch\Edit-BarTextures.ps1 -Import" 'DarkGray'
         } else {
             Write-Log "-- Текстуры: жёсткая обрезка (стандартная нарезка)." 'Cyan'
-            if (Test-Path $marker) { Remove-Item $marker -Force }
         }
+        if (Test-Path $marker) { Remove-Item $marker -Force }
     } else {
         Write-Log "-- Widescreen выключен: возвращаю оригинальные файлы игры и убираю UI-мод..." 'Cyan'
         Invoke-Child 'widescreen\DoW-Widescreen-Patcher.ps1' @{ Restore = $true; GamePath = $gp }

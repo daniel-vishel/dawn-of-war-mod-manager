@@ -1,292 +1,325 @@
 # Dawn of War (Anniversary Edition) — Mod Manager
 
-Набор модов для Warhammer 40,000: Dawn of War — Anniversary Edition (Steam)
-с графическим менеджером: широкий экран, нерастянутый интерфейс, увеличенный
-отвод камеры, русский язык.
+*[Русская версия](README.ru.md)*
 
-| Мод | Что делает | Откат |
+A set of mods for **Warhammer 40,000: Dawn of War — Anniversary Edition** (Steam)
+with a graphical manager: widescreen rendering, an unstretched interface,
+extended camera zoom, fog distance, and Russian localisation.
+
+| Mod | What it does | Rollback |
 |---|---|---|
-| [widescreen](widescreen/) | Честное расширение обзора под широкий экран (не растяжение) | из бэкапа `_widescreen_backup` |
-| [ui-unstretch](ui-unstretch/) | Нерастянутый интерфейс: панели 4:3, разнесены по углам экрана | по манифесту |
-| [camera-zoom](camera-zoom/) | Увеличенный отвод камеры колёсиком | удаление одного файла |
-| [fog-distance](fog-distance/) | Туман не съедает объекты при дальнем отводе камеры | по манифесту |
-| язык | Русификатор + `[lang:russian]` в `W40k.ini` | возврат `W40k.ini` из копии |
+| [widescreen](widescreen/) | Genuinely widens the field of view, rather than stretching it | from the `_widescreen_backup` copy |
+| [ui-unstretch](ui-unstretch/) | Unstretched interface: 4:3 panel proportions, moved into the screen corners | by manifest |
+| [camera-zoom](camera-zoom/) | Extended camera zoom-out on the mouse wheel | delete a single file |
+| [fog-distance](fog-distance/) | Fog stops eating objects when the camera is pulled far back | by manifest |
+| language | Localisation pack + `[lang:russian]` in `W40k.ini` | restore `W40k.ini` from the copy |
 
-Тестируется на **3440x1440 (21:9)**, поддерживаются любые разрешения.
+Tested at **3440x1440 (21:9)**; any resolution is supported.
 
-> **После «Применить» игра запускается обычным способом из Steam** — менеджер
-> нужен только для настройки, при игре он не требуется. Файлы игры патчатся на
-> диске, но с полным бэкапом: откат в один клик.
+> **After Apply the game launches the ordinary way from Steam.** The manager is
+> only needed to configure things, not to play. Game files are patched on disk,
+> but with a full backup: rollback is one click.
 
-> ⚠️ **Только для одиночной игры.** Изменённый aspect в мультиплеере — информационное
-> преимущество и риск рассинхронизации.
+> ⚠️ **Single-player only.** A changed aspect ratio in multiplayer is an
+> information advantage and a desync risk.
 
-Требования: Windows, PowerShell 5.1+ (есть в системе), игра установлена через Steam.
+Requirements: Windows, PowerShell 5.1+ (already in the system), the game
+installed through Steam.
 
 ---
 
-## 0. Менеджер модов — всё в одном окне
+## 0. The manager — everything in one window
 
-**`DoW-ModManager.exe`** — графическое приложение (двойной клик). В репозитории
-лежит только исходник: соберите `.exe` один раз системным компилятором
-.NET Framework 4.x (SDK ставить не нужно, `csc.exe` уже есть в Windows):
+**`DoW-ModManager.exe`** is a graphical application (double-click it). Only the
+source is kept in the repository: build the `.exe` once with the .NET
+Framework 4.x compiler that ships with Windows — no SDK required.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\app\Build-App.ps1
 ```
 
-`DoW-ModManager.exe` появится в корне рядом со скриптами. Логику модов приложение
-не дублирует: собирает настройки и вызывает `DoW-Launcher.ps1`, показывая живой лог.
+`DoW-ModManager.exe` appears in the repository root next to the scripts. The
+app does not duplicate any mod logic: it collects settings, calls
+`DoW-Launcher.ps1` and streams its log live.
 
-### Что умеет
+### What it can do
 
-- **Папка с игрой** — автопоиск (типовые пути Steam + реестр) или выбор вручную.
-- **Определяет, что уже установлено.** При запуске читает реальное состояние игры
-  (пропатчены ли DLL, стоит ли UI-мод и зум, лежит ли русификатор, что в
-  `W40k.ini` и `Local.ini`) и выставляет галочки по факту. Если что-то ставилось
-  раньше или вручную — менеджер это увидит.
-- **«Применить»** активна только когда в окне есть изменения относительно того,
-  что реально стоит в игре.
-- **«По умолчанию»** — вернуть параметры окна к рекомендуемым (на игру не влияет,
-  пока не нажать «Применить»).
-- **«Откат»** — возвращает файлы игры к оригиналу и снимает все галочки в окне.
-- **Лог** сворачивается кнопкой; **тема** (светлая/тёмная) берётся из системы.
-- Описания всех опций — на иконках **«?»** рядом с параметрами (наведите мышь).
+- **Game folder** — auto-detected (usual Steam paths plus the registry) or
+  picked by hand.
+- **Detects what is already installed.** On start it reads the real state off
+  disk (whether the DLLs are patched, whether the UI mod and the zoom are in
+  place, which locales are present, what `W40k.ini` and `Local.ini` say) and
+  ticks the boxes accordingly. Anything installed earlier or by hand shows up.
+- **Apply** is enabled only when the window differs from what is actually
+  installed.
+- **Defaults** returns the window to the recommended values; it does not touch
+  the game until Apply is pressed.
+- **Rollback** restores the game files and clears every box.
+- **Launch game** is always available and starts the game as-is, applying
+  nothing.
+- The **log** collapses with a button; the **theme** follows the system.
+- Every option is documented on the **?** dots next to it — hover to read.
 
-### Иконка и шапка
+### Icon and header
 
-Приложение подхватывает `app\app.ico` (иконка окна и `.exe`) и `app\header.png`
-(картинка шапки, ширина 688 × высота 84) — если их положить, оформление
-появится само; иконка вшивается в `.exe` при сборке. В репозитории этих файлов
-нет: это чужой арт, раздавать его вместе с модом нельзя. Без них приложение
-работает как обычно — в шапке просто будет текст.
+The app picks up `app\app.ico` (window and `.exe` icon) and `app\header.png`
+(the header strip, 688 × 84). Both are in the repository and the icon is
+embedded into the `.exe` at build time. Without them the app still works and
+simply shows a text header.
 
-### Без окна (консоль)
+### Headless (console)
 
 ```powershell
-.\DoW-Launcher.ps1 -Status       # текущее состояние игры (JSON)
-.\DoW-Launcher.ps1 -Apply        # применить настройки из launcher-settings.json
-.\DoW-Launcher.ps1 -Launch       # применить и запустить игру
-.\DoW-Launcher.ps1 -RestoreAll   # полный откат
+.\DoW-Launcher.ps1 -Status       # current game state as JSON
+.\DoW-Launcher.ps1 -LocaleInfo   # which locales are really installed
+.\DoW-Launcher.ps1 -Apply        # apply the settings from launcher-settings.json
+.\DoW-Launcher.ps1 -Launch       # apply the settings and start the game
+.\DoW-Launcher.ps1 -RestoreAll   # full rollback
 ```
 
 ---
 
-## 1. Widescreen (расширение обзора)
+## 1. Widescreen (a wider field of view)
 
-Движок хранит соотношение сторон как константу `1.3333` (4:3, hex `AB AA AA 3F`)
-в `Platform.dll`, `spDx9.dll`, `UserInterface.dll`. Замена на реальное соотношение
-экрана (`3440/1440 = 2.3889`) заставляет движок рендерить **более широкую область
-мира**: пропорции корректны, круги выделения юнитов остаются кругами.
+The engine stores the aspect ratio as the constant `1.3333` (4:3, hex
+`AB AA AA 3F`) in `Platform.dll`, `spDx9.dll` and `UserInterface.dll`.
+Replacing it with the real screen ratio (`3440/1440 = 2.3889`) makes the engine
+render **a wider slice of the world**: proportions stay correct and unit
+selection circles stay circles.
 
-Патч кладётся **на диск** (`widescreen\DoW-Widescreen-Patcher.ps1`) — именно
-поэтому игра потом работает при обычном запуске из Steam. Перед первой правкой
-оригиналы копируются в `<игра>\_widescreen_backup`, откат восстанавливает их
-оттуда. Разрешение прописывается в `Local.ini` (файл ставится read-only, чтобы
-игра не сбросила его из меню настроек).
+The patch is written **to disk** (`widescreen\DoW-Widescreen-Patcher.ps1`),
+which is exactly why the game works afterwards when started normally from
+Steam. Before the first edit the originals are copied into
+`<game>\_widescreen_backup`, and rollback restores them from there. The
+resolution is written into `Local.ini`, which is then marked read-only so the
+game cannot reset it from its own settings menu.
 
-### Мини-карта (известный трейдофф)
+### Minimap (a known trade-off)
 
-Константа в exe отвечает и за мини-карту. Режимы (в окне — «Мини-карта (exe)»):
+The same constant in the exe also drives the minimap. The modes (labelled
+"Мини-карта (exe)" in the window):
 
-| Режим | exe | Эффект |
+| Mode | exe | Effect |
 |---|---|---|
-| `skip` (рекомендуется) | не трогается | мир корректный; квадратность мини-карты чинит UI-мод через разметку |
-| `compromise` | 1.25 | помогает мини-карте у части версий; побочно искажает главное меню (в бою всё ок) |
-| `full` | полный aspect | мини-карта ок у части пользователей, но мир может растянуться |
+| `skip` (recommended) | untouched | the world is correct; the UI mod fixes minimap squareness through the layout |
+| `compromise` | 1.25 | helps the minimap on some builds; as a side effect it distorts the main menu, though in battle everything is fine |
+| `full` | real aspect | the minimap is fine for some users, but the world may stretch |
 
-Порядок: `skip` (с UI-модом) → если мини-карта всё же сломана → `compromise`.
+Order to try: `skip` (with the UI mod) → if the minimap is still broken →
+`compromise`.
 
-### Важно
+### Important
 
-**Не меняйте разрешение в настройках игры** — она перепишет `Local.ini`.
-Разрешение задаётся только менеджером.
-
----
-
-## 2. Unstretched UI (нерастянутый интерфейс)
-
-Разметка интерфейса лежит в `Engine\Engine.sga` → `data/art/ui/screens/*.screen`
-(Lua-таблицы; позиция и размер каждого виджета — в долях экрана). На широком
-экране движок растягивает эту разметку на всю ширину — портреты становятся
-овальными, мини-карта и панели искажаются.
-
-Установщик `ui-unstretch\Install-UnstretchedUI.ps1`:
-1. Извлекает разметку **из вашего** `Engine.sga` (работает с любой версией игры).
-2. Сжимает панели HUD по горизонтали с коэффициентом `k = (4/3) / (ширина/высота)`
-   (пропорции как на 4:3, мини-карта не искажена) и **разносит их по углам**:
-   мини-карта и ресурсы — к левому краю; панель выбора отряда, командные кнопки
-   и кнопки меню — единым блоком к правому; центр экрана остаётся открытым, там
-   виден 3D-мир.
-3. Фоны баров нарисованы одной текстурой на всю ширину, поэтому установщик
-   **режет текстуры на ломтики** по границам функциональных зон (из вашего же
-   `Engine.sga`, для всех рас); каждый ломтик разъезжается вместе со своими
-   кнопками — кнопки остаются точно на своих гнёздах в арте.
-4. Кнопкам без явного размера в разметке прописывается размер соседа с тем же
-   стилем — иначе они не сжимаются и наезжают на соседние панели.
-5. 3D-мир (`ctmSimVis`) растягивается на весь экран.
-6. Результат кладётся loose-файлами в `Engine\Data\` поверх архива — оригинальные
-   архивы не изменяются.
-
-### Текстуры баров
-
-- **жёсткая обрезка** — стандартные текстуры: они обрезаны по границе с картой,
-  части раздвигаются по углам, и на стыках виден резкий обрыв картинки когда-то
-  цельной панели.
-- **дорисованные** — сторонние текстуры с плавным/аккуратным краем из
-  `ui-unstretch\textures-custom\` (на данный момент реализованы только для
-  космического десанта). Арт любого размера подгоняется автоматически: фон
-  вырезается заливкой от краёв, арт выравнивается по габаритам оригинала;
-  совмещение можно проверить в `textures-custom\_preview\` без запуска игры.
-
-**Внутренние дыры панели** (командная карта, гнёзда портретов) должны быть
-прозрачными, чтобы сквозь них был виден мир и кнопки. Заливка чёрного от краёв
-до них не доходит — они заперты рамкой. Сделать их прозрачными:
-- нарисовать в редакторе настоящую прозрачность и выключить кеинг:
-  `align.json` → `{"threshold":-1}` (так сделан `taskbar_ws1`); либо
-- залить каждую дыру цветом-маркером (магента) и указать его:
-  `{"chroma":"FF00FF","chromaTol":60}` — цвет вырезается везде, включая
-  замкнутые зоны, а `chromaTol` подбирается так, чтобы не задеть металл рамки.
-
-Инструмент для правки текстур: `ui-unstretch\Edit-BarTextures.ps1` — `-Export`
-выгрузить ломтики в PNG, `-Preview` проверить совмещение без запуска игры,
-`-Import` вернуть правки в игру.
+**Do not change the resolution in the game settings** — the game will rewrite
+`Local.ini`. Set the resolution only from the manager.
 
 ---
 
-## 3. Camera Zoom (отвод камеры колёсиком)
+## 2. Unstretched UI
 
-Параметры камеры лежат в `Engine\Engine.sga` в файле `camera_high.lua`.
-Движок читает **loose-файлы из `<игра>\Engine\Data` поверх архива**, поэтому
-установщик просто кладёт туда модифицированный `camera_high.lua`
-(максимальный отвод `DistMax`: 38 → 76). Оригинальные файлы не изменяются.
+The interface layout lives in `Engine\Engine.sga` →
+`data/art/ui/screens/*.screen` (Lua tables; the position and size of every
+widget are given in screen fractions). On a wide screen the engine stretches
+that layout across the full width: portraits turn oval, and the minimap and the
+panels are distorted.
 
-**Совместимость с текущими кампаниями.** В отличие от гайдов из Steam Community,
-где мод ставится отдельным модулем (и требует новой кампании), здесь файл кладётся
-на engine-уровень, а не в данные модуля кампании (W40k/WXP). Параметры камеры не
-хранятся в сейвах — **уже идущие кампании и сейвы продолжают работать**.
+`ui-unstretch\Install-UnstretchedUI.ps1`:
 
-**Обязательно:** в настройках графики игры включите **Full 3D Camera** — иначе
-используется упрощённая камера (`camera_low`) и мод не действует.
+1. Extracts the layout from **your own** `Engine.sga`, so it works with any
+   version of the game.
+2. Squeezes the HUD panels horizontally by `k = (4/3) / (width/height)` — the
+   proportions of 4:3, with the minimap no longer distorted — and **spreads
+   them into the corners**: the minimap and the resources to the left edge; the
+   squad selection panel, the command buttons and the menu buttons as one block
+   to the right. The centre of the screen stays clear, showing the 3D world.
+3. The bar backgrounds are drawn as a single full-width texture, so the
+   installer **cuts them into slices** at the functional zone boundaries (from
+   your own `Engine.sga`, for every race). Each slice travels together with its
+   own buttons, so the buttons stay exactly on their painted sockets.
+4. Buttons with no explicit size in the layout are given the size of a sibling
+   with the same style — otherwise they do not scale and overlap their
+   neighbours.
+5. The 3D world (`ctmSimVis`) is expanded to the whole screen.
+6. The result is installed as loose files into `Engine\Data\` on top of the
+   archive; the original archives are never modified.
 
-На дальнем отводе карта затягивается туманом: дистанционный туман карты
-откалиброван под ванильный `DistMax = 38`, и объекты за его границей уходят
-в дымку. 76 — разумный баланс **без** фикса тумана; с модулем
-[fog-distance](fog-distance/) (раздел 4) можно отводить дальше.
+### Bar textures
+
+- **Hard cut** — the stock textures, cut at the boundary with the map. The
+  parts move apart into the corners, so at the seams you see where a once
+  continuous panel was cut. **This is currently the only mode.**
+- **Repainted** — *work in progress, locked in the manager.* The idea is a
+  panel that ends on a soft, tidy edge instead of a hard cut.
+
+No repainted artwork is shipped here and none will be: such art is derived from
+the game textures, which is third-party content that cannot be redistributed
+with the mod.
+
+The machinery is in place, so your own art can still be wired up by hand:
+
+```powershell
+.\ui-unstretch\Edit-BarTextures.ps1 -Export    # export the slices as PNG
+.\ui-unstretch\Edit-BarTextures.ps1 -Preview   # check alignment, no game needed
+.\ui-unstretch\Edit-BarTextures.ps1 -Import    # push the edits into the game
+```
+
+Fully repainted slices of any size go into
+`ui-unstretch\textures-custom\<race>\<slice>.png` (the folder is gitignored).
+On `-Import` the background connected to the image border is keyed out, and the
+art is fitted to the original slice box, so buttons and the minimap stay in
+place.
+
+**Enclosed holes in the panel** (the command card, the portrait sockets) have to
+be transparent so the world and the buttons show through. The border flood fill
+never reaches them — they are walled in by the frame. Two ways to cut them out:
+
+- paint real transparency in an editor and disable the keying:
+  `align.json` → `{"threshold":-1}`; or
+- fill each hole with a marker colour (magenta) and name it:
+  `{"chroma":"FF00FF","chromaTol":60}` — the colour is keyed out everywhere,
+  enclosed regions included. Pick `chromaTol` so it does not eat the frame
+  metal.
 
 ---
 
-## 4. Fog Distance (туман не съедает объекты при отдалении)
+## 3. Camera Zoom
 
-Дистанционный туман и радиус неба задаются **в самих картах**, а не в файлах
-камеры — из `camera_high.lua` это не правится. Значения откалиброваны под
-ванильный отвод, поэтому при увеличенном `DistMax` юниты и здания за границей
-тумана затягиваются дымкой и высокий обзор становится бесполезен.
+The camera parameters live in `Engine\Engine.sga`, in `camera_high.lua`. The
+engine reads **loose files from `<game>\Engine\Data` over the archive**, so the
+installer simply drops a modified `camera_high.lua` there (maximum distance
+`DistMax`: 38 → 76). Original files are not modified.
 
-Модуль **не выключает туман, а отодвигает его**: атмосфера сохраняется,
-объекты остаются видимыми.
+**Compatibility with campaigns in progress.** Unlike the Steam Community guides,
+where the mod is installed as a separate module and requires a new campaign,
+here the file goes to the engine level rather than into the campaign module data
+(W40k/WXP). Camera parameters are not stored in saves, so **campaigns and saves
+already in progress keep working**.
 
-Карты кампании (`scenarios/sp/*.sgb`) — формат Relic Chunky. Внутри
+**Required:** enable **Full 3D Camera** in the game graphics settings, otherwise
+the simplified camera (`camera_low`) is used and the mod has no effect.
+
+At long range the map is swallowed by fog: a map's distance fog is calibrated
+for the stock `DistMax = 38`, so objects past that boundary fade into haze. 76 is
+a sensible balance **without** the fog fix; with the [fog-distance](fog-distance/)
+module (section 4) you can pull back further.
+
+---
+
+## 4. Fog Distance
+
+Fog distance and sky radius are defined **in the maps themselves**, not in the
+camera files — `camera_high.lua` cannot change them. The values are calibrated
+for the stock camera distance, so with a raised `DistMax` units and buildings
+past the fog boundary wash out into haze and the high view becomes useless.
+
+The module **does not disable the fog, it pushes it back**: the atmosphere
+stays, the objects remain visible.
+
+The campaign maps (`scenarios/sp/*.sgb`) use the Relic Chunky format. Under
 `FOLD SCEN > FOLD WSTC > FOLD TERR`:
 
-| Чанк | Что правится | Смещение |
+| Chunk | Field | Offset |
 |---|---|---|
-| `DATA EFFC` | дистанция тумана (float) | `+40` от начала данных чанка |
-| `DATA HRZN` | радиус неба (float) | после `uint32 nameLen` + имени неба |
+| `DATA EFFC` | fog distance (float) | `+40` from the start of the chunk data |
+| `DATA HRZN` | sky radius (float) | after `uint32 nameLen` and the sky name |
 
-Обе правки — перезапись float **на месте**, размеры чанков не меняются.
+Both edits overwrite a float **in place**, so chunk sizes never change.
 
-Установщик `fog-distance\Install-FogDistance.ps1` читает карты **из вашего**
-`.sga`, патчит в памяти и кладёт loose-файлами в `<игра>\W40k\Data\scenarios\sp\`
-— оригинальные архивы не изменяются (тот же приём, что в `camera-zoom`).
+`fog-distance\Install-FogDistance.ps1` reads the maps from **your own** `.sga`,
+patches them in memory and writes loose files into
+`<game>\W40k\Data\scenarios\sp\`. The original archives are not modified — the
+same trick `camera-zoom` uses.
 
 ```powershell
 .\fog-distance\Install-FogDistance.ps1                          # 1000 / 512
 .\fog-distance\Install-FogDistance.ps1 -FogDistance 1500 -SkyRadius 700
-.\fog-distance\Install-FogDistance.ps1 -Restore                 # откат
+.\fog-distance\Install-FogDistance.ps1 -Restore                 # rollback
 ```
 
-### Про сохранения
+> This module is not wired into the manager window yet; run it from the console.
 
-Сейв кампании ссылается на данные карты, поэтому **при активном фиксе старые
-сохранения могут не открываться** (о том же предупреждают авторы аналогичных
-модов). Здесь это **обратимо**: `-Restore` удаляет loose-карты, возвращаются
-ванильные из архива, и старые сейвы снова работают. Рекомендация — включать
-фикс на новой кампании.
+### About saves
+
+A campaign save references map data, so **with the fix active older saves may
+refuse to load** — the authors of similar mods warn about the same thing. Here
+it is **reversible**: `-Restore` deletes the loose maps, the vanilla ones come
+back from the archive, and the old saves work again. The recommendation is to
+enable the fix on a fresh campaign.
 
 ---
 
-## 5. Русский язык
+## 5. Russian language
 
-Менеджер прописывает `[lang:russian]` в `W40k.ini` (с резервной копией) и умеет
-распаковать архив русификатора в папку игры.
+The manager writes `[lang:russian]` into `W40k.ini` (with a backup) and can
+unpack a localisation archive into the game folder.
 
-### Проверка того, что реально стоит
+### Detecting what is actually installed
 
-Менеджер сканирует `<игра>\<модуль>\Locale\<Язык>\` (W40k, WXP, DXP2, Engine)
-и считает локаль установленной, только если в ней есть содержимое — файлы
-`.ucs` и/или `.sga`. **Пустая папка `Locale\Russian` за русификатор не
-считается.** Найденные локали показываются в строке состояния под галкой.
+The manager scans `<game>\<module>\Locale\<Language>\` (W40k, WXP, DXP2, Engine)
+and treats a locale as installed only when it holds content — `.ucs` and/or
+`.sga` files. **An empty `Locale\Russian` folder does not count.** The locales
+found are shown in the status line under the checkbox.
 
-Диагностика из консоли:
+Console diagnostics:
 
 ```powershell
 .\DoW-Launcher.ps1 -LocaleInfo
 ```
 
-Покажет каждую локаль (сколько файлов, `.ucs`, `.sga`, полные пути), какие из
-них пригодны, что стоит в `W40k.ini` и каким распаковщиком доступны архивы.
+It reports every locale (file counts, `.ucs`, `.sga`, full paths), which of them
+are usable, what `W40k.ini` says, and which extractor is available for archives.
 
-### Защита от вылета
+### Crash guard
 
-Движок падает на старте, если `[lang:X]` указывает на локаль, которой нет.
-Ровно это и происходило при выключении русского: русификатор заменял
-английскую локаль, менеджер писал `[lang:english]`, и игра вылетала.
+The engine dies at startup when `[lang:X]` points at a locale that does not
+exist. That is exactly what happened when Russian was switched off: the
+localisation had replaced the English locale, the manager wrote
+`[lang:english]`, and the game crashed.
 
-Теперь язык переключается **только на реально существующую локаль**. Если
-английской локали нет, менеджер откажется переключать язык, оставит `W40k.ini`
-нетронутым и скажет об этом. Вернуть английский — проверкой целостности файлов
-игры в Steam (Свойства → Установленные файлы → Проверить целостность).
+The language is now switched **only to a locale that really exists**. If the
+English locale is missing, the manager refuses to switch, leaves `W40k.ini`
+untouched and says so. To get English back, verify the integrity of the game
+files in Steam (Properties → Installed Files → Verify integrity).
 
-### Установка
+### Installing
 
-Кнопка **«Скачать русификатор…»** открывает
-[гайд в Steam](https://steamcommunity.com/sharedfiles/filedetails/?id=3421728842)
-(зеркала Playground / Google Drive / Яндекс.Диск / Облако Mail.ru). Скачанный
-архив указывается кнопкой **«Указать архив…»**.
+The **"Скачать русификатор…"** button opens the
+[Steam guide](https://steamcommunity.com/sharedfiles/filedetails/?id=3421728842)
+with the mirrors (Playground / Google Drive / Yandex.Disk / Mail.ru Cloud). Point
+the manager at the downloaded archive with **"Указать архив…"**.
 
-Поддерживаются **zip, rar, 7z** и прочие форматы: распаковщик ищется в реестре,
-`PATH` и типовых папках (7-Zip, затем WinRAR); `zip` распаковывается штатными
-средствами и без них. Лишняя папка-обёртка внутри архива (`Русификатор\W40k\…`)
-снимается автоматически — файлы лягут в правильные места.
+**zip, rar, 7z** and other formats are supported: the extractor is resolved from
+the registry, `PATH` and the usual install folders (7-Zip, then WinRAR); `zip`
+works without either. A redundant wrapper folder inside the archive is stripped
+automatically, so the files land in the right places.
 
-**Файлов русификатора в репозитории нет и не будет:** это чужой контент
-(перевод и озвучка коммерческой игры), выложенный без лицензии на раздачу —
-класть его в публичный репозиторий нельзя.
+**The localisation files are not in this repository and never will be:** they are
+third-party content — a translation and voice-over of a commercial game,
+published without a redistribution licence.
 
 ---
 
-## 6. Справка: hex-значения соотношений сторон
+## 6. Reference: aspect ratio hex values
 
-| Соотношение | Разрешение | Float | Hex (LE) |
+| Ratio | Resolution | Float | Hex (LE) |
 |---|---|---|---|
-| 4:3 (оригинал) | 1600x1200 | 1.3333 | `AB AA AA 3F` |
+| 4:3 (stock) | 1600x1200 | 1.3333 | `AB AA AA 3F` |
 | 16:10 | 1920x1200 | 1.6000 | `CC CC CD 3F` |
 | 16:9 | 1920x1080 | 1.7778 | `39 8E E3 3F` |
 | 21:9 | 2560x1080 | 2.3704 | `26 B4 17 40` |
 | **21:9** | **3440x1440** | **2.3889** | **`8E E3 18 40`** |
 | 32:9 | 5120x1440 | 3.5556 | `39 8E 63 40` |
 
-## 7. Источники
+## 7. Sources
 
-- [Ultra widescreen Fix 21:9 (Steam)](https://steamcommunity.com/sharedfiles/filedetails/?id=1132691115) — hex-значения, «exe не трогать»
-- [A better 16:9 widescreen fix (Steam)](https://steamcommunity.com/sharedfiles/filedetails/?id=2552610755) — компромисс 1.25 для мини-карты
-- [Dawn of War Widescreen Fix (Steam)](https://steamcommunity.com/sharedfiles/filedetails/?id=205040803) — базовый метод
-- [Русификатор (Steam-гайд)](https://steamcommunity.com/sharedfiles/filedetails/?id=3421728842) — ссылки на архив локализации
-- [Relic RDN Wiki: Capturing Screenshots](https://dow.finaldeath.co.uk/rdnwiki/www.relic.com/rdn/wiki/CapturingScreenshots&v=x7.html) — оригинальный `camera_high.lua`
-- [Zoom Out Further (обсуждение AE)](https://steamcommunity.com/app/4570/discussions/0/3183484418860439190/) — путь `Engine\Data`
-- [zero334/Dawn-of-War-Widescreen-Fix](https://github.com/zero334/Dawn-of-War-Widescreen-Fix) — референс автоматизации
-- [ModernMAK/Relic-Game-Tool](https://github.com/ModernMAK/Relic-Game-Tool) — референс формата SGA v2
-- [Unstretched UI (Soulstorm/DC)](https://www.moddb.com/mods/unstretched-ui) — идея нерастянутого UI (с AE несовместим)
-- [Increased Fog Distance & Sky Radius](https://www.nexusmods.com/warhammer40000dawnofwar/mods/2) — референс значений тумана/неба (1000 / 512); формат чанков разобран самостоятельно
-- [Изменение дальности камеры (Steam-гайд)](https://steamcommunity.com/sharedfiles/filedetails/?id=3413196417) — постановка задачи по туману, предупреждение про сейвы
+- [Ultra widescreen Fix 21:9 (Steam)](https://steamcommunity.com/sharedfiles/filedetails/?id=1132691115) — hex values, "do not touch the exe"
+- [A better 16:9 widescreen fix (Steam)](https://steamcommunity.com/sharedfiles/filedetails/?id=2552610755) — the 1.25 compromise for the minimap
+- [Dawn of War Widescreen Fix (Steam)](https://steamcommunity.com/sharedfiles/filedetails/?id=205040803) — the basic method
+- [Localisation (Steam guide)](https://steamcommunity.com/sharedfiles/filedetails/?id=3421728842) — links to the localisation archive
+- [Relic RDN Wiki: Capturing Screenshots](https://dow.finaldeath.co.uk/rdnwiki/www.relic.com/rdn/wiki/CapturingScreenshots&v=x7.html) — the stock `camera_high.lua`
+- [Zoom Out Further (AE discussion)](https://steamcommunity.com/app/4570/discussions/0/3183484418860439190/) — the `Engine\Data` path
+- [zero334/Dawn-of-War-Widescreen-Fix](https://github.com/zero334/Dawn-of-War-Widescreen-Fix) — automation reference
+- [ModernMAK/Relic-Game-Tool](https://github.com/ModernMAK/Relic-Game-Tool) — SGA v2 format reference
+- [Unstretched UI (Soulstorm/DC)](https://www.moddb.com/mods/unstretched-ui) — the unstretched UI idea (not compatible with AE)
+- [Increased Fog Distance & Sky Radius](https://www.nexusmods.com/warhammer40000dawnofwar/mods/2) — reference values for fog and sky (1000 / 512); the chunk format was reverse-engineered here
+- [Changing the camera range (Steam guide)](https://steamcommunity.com/sharedfiles/filedetails/?id=3413196417) — where the fog problem was posed, and the warning about saves
