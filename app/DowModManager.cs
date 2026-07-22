@@ -1,12 +1,12 @@
-// ============================================================
+﻿// ============================================================
 //  Dawn of War — Mod Manager (WinForms, .NET Framework 4.8)
-//  Графический менеджер модов. Вся тяжёлая логика (патч файлов,
-//  распаковка SGA, нарезка/подгонка текстур, трансформ UI) живёт
-//  в PowerShell-скриптах; приложение собирает настройки, читает
-//  реальное состояние игры и вызывает DoW-Launcher.ps1.
+//  Graphical mod manager. All the heavy lifting (file patching, SGA
+//  extraction, texture slicing and fitting, UI transforms) lives in the
+//  PowerShell scripts; this app only collects settings, reads the real
+//  game state and calls DoW-Launcher.ps1.
 //
-//  Сборка: powershell -File app\Build-App.ps1
-//  Самопроверка без окна: DoW-ModManager.exe --selftest
+//  Build: powershell -File app\Build-App.ps1
+//  Headless self-test: DoW-ModManager.exe --selftest
 // ============================================================
 using System;
 using System.Collections.Generic;
@@ -35,7 +35,7 @@ namespace DowModManager
         }
     }
 
-    // ---------- Тема оформления (берётся из системы) ----------
+    // ---------- Colour theme, taken from the system ----------
     class Theme
     {
         public bool Dark;
@@ -101,7 +101,7 @@ namespace DowModManager
         }
     }
 
-    // ---------- Кружок со знаком вопроса; описание — во всплывающей подсказке ----------
+    // ---------- Question-mark dot; the description lives in its tooltip ----------
     class HelpDot : Control
     {
         Theme th;
@@ -141,15 +141,15 @@ namespace DowModManager
         }
     }
 
-    // ---------- Настройки (совпадают с $S в DoW-Launcher.ps1) ----------
+    // ---------- Settings, mirroring $S in DoW-Launcher.ps1 ----------
     class Settings
     {
         public string GamePath = "";
         public string Game = "W40k";          // W40k | WA
         public int Width = 3440;
         public int Height = 1440;
-        public bool Widescreen = true;         // патч отрисовки + UI (единый комплект)
-        public bool TexturesCustom = true;     // true = дорисованные, false = жёсткая обрезка
+        public bool Widescreen = true;         // rendering patch + UI, one bundle
+        public bool TexturesCustom = true;     // true = repainted art, false = hard-cut
         public bool Zoom = true;
         public int DistMax = 76;
         public bool Russian = false;
@@ -157,7 +157,7 @@ namespace DowModManager
 
         public Settings Clone() { return (Settings)MemberwiseClone(); }
 
-        // Сравнение без GamePath: важно, изменил ли пользователь набор модов
+        // Compare without GamePath: what matters is whether the mod set changed
         public bool SameAs(Settings o)
         {
             return Widescreen == o.Widescreen && Width == o.Width && Height == o.Height
@@ -225,14 +225,14 @@ namespace DowModManager
         }
     }
 
-    // ---------- Реальное состояние игры (из DoW-Launcher.ps1 -Status) ----------
+    // ---------- Real game state, from DoW-Launcher.ps1 -Status ----------
     class GameStatus
     {
         public bool WidescreenPatched, UiInstalled, TexturesCustom, ZoomInstalled, LocaleRussian, LangRussian;
-        public bool LocaleEnglish;      // английская локаль на месте (нужна, чтобы вернуть язык)
-        public string LocalesFound = "";// какие локали реально стоят, через запятую
+        public bool LocaleEnglish;      // English locale present, needed to switch back
+        public string LocalesFound = "";// locales really installed, comma separated
         public int Width, Height, DistMax;
-        public bool Known;   // удалось ли прочитать состояние
+        public bool Known;   // whether the state could be read at all
 
         public static GameStatus Parse(string json)
         {
@@ -254,7 +254,7 @@ namespace DowModManager
         }
     }
 
-    // ---------- Разрешение текущего экрана ----------
+    // ---------- Resolution of the current screen ----------
     static class ScreenInfo
     {
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
@@ -275,9 +275,10 @@ namespace DowModManager
         static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE devMode);
         const int ENUM_CURRENT_SETTINGS = -1;
 
-        // Физическое разрешение монитора, на котором находится окно.
-        // EnumDisplaySettings не врёт при масштабировании Windows, в отличие
-        // от Screen.Bounds, поэтому он основной, а Screen — запасной вариант.
+        // Physical resolution of the monitor the window sits on.
+        // EnumDisplaySettings reports honest pixels under Windows display
+        // scaling, unlike Screen.Bounds, so it is primary and Screen is the
+        // fallback.
         public static void Get(Control c, out int w, out int h)
         {
             w = 0; h = 0;
@@ -301,7 +302,7 @@ namespace DowModManager
         }
     }
 
-    // ---------- Автопоиск папки игры ----------
+    // ---------- Game folder auto-detection ----------
     static class GameFinder
     {
         public static string Find()
@@ -347,7 +348,7 @@ namespace DowModManager
         }
     }
 
-    // ---------- Тексты подсказок ----------
+    // ---------- Tooltip texts ----------
     static class Help
     {
         public const string Widescreen =
@@ -418,11 +419,11 @@ namespace DowModManager
             "Обычно определяется автоматически по реестру Steam и библиотекам.";
     }
 
-    // ---------- Главное окно ----------
+    // ---------- Main window ----------
     class MainForm : Form
     {
-        Settings S;              // то, что показано в окне
-        Settings applied;        // то, что реально стоит в игре (снимок)
+        Settings S;              // what the window currently shows
+        Settings applied;        // snapshot of what is really installed
         GameStatus status = new GameStatus();
         Theme th;
 
@@ -436,7 +437,7 @@ namespace DowModManager
         RadioButton radCustom, radHard;
         Button btnApply, btnPlay, btnRestore, btnDefaults, btnRusBrowse, btnLogToggle, btnLaunchOnly;
         Button btnRusGet;
-        // Steam-гайд со ссылками на архив русификатора (тот же, что в README)
+        // Steam guide with the localisation download mirrors (same as in README)
         const string RusGuideUrl = "https://steamcommunity.com/sharedfiles/filedetails/?id=3421728842";
         Label lblRusState, lblStatus;
         Panel header;
@@ -487,7 +488,7 @@ namespace DowModManager
 
             tip = new ToolTip { AutoPopDelay = 32000, InitialDelay = 250, ReshowDelay = 80, ShowAlways = true };
 
-            // --- Шапка: картинка app\header.png, иначе текст ---
+            // --- Header: the app\header.png image, or plain text ---
             header = new Panel { Location = new Point(0, 0), Size = new Size(688, 84), BackColor = th.PanelBg };
             string hdrImg = Path.Combine(root, @"app\header.png");
             if (File.Exists(hdrImg))
@@ -510,7 +511,7 @@ namespace DowModManager
 
             int y = 96;
 
-            // --- Игра ---
+            // --- Game ---
             var grpGame = Group("Игра", 12, y, 660, 84);
             txtPath = Input(14, 24, 470);
             txtPath.Text = S.GamePath;
@@ -535,10 +536,10 @@ namespace DowModManager
             y += 92;
 
             // --- Widescreen + UI ---
-            // Сетка: три строки по 28px, левая колонка с x=14, правая с x=396.
-            // Всё внутри строки центрируется по её базовой линии (RowY).
-            const int wsR1 = 24, wsR2 = 54, wsR3 = 86;   // строки
-            const int colL = 14, colR = 374;             // колонки
+            // Grid: three 28px rows, left column at x=14, right at x=396.
+            // Everything in a row is centred on that row baseline (RowY).
+            const int wsR1 = 24, wsR2 = 54, wsR3 = 86;   // rows
+            const int colL = 14, colR = 374;             // columns
 
             var grpWs = Group("Widescreen-отрисовка + нерастянутый UI (единый комплект)", 12, y, 660, 122);
             chkWs = Check("Включить отрисовку под разрешение (UI ставится автоматически)", colL, wsR1, 0);
@@ -546,7 +547,7 @@ namespace DowModManager
             var dotWs = DotAfter(chkWs, Help.Widescreen);
             chkWs.CheckedChanged += (s, e) => { ToggleWs(); if (!loading) MarkDirty(); };
 
-            // строка 2, левая колонка: разрешение
+            // row 2, left column: resolution
             var lblRes = Lbl("Разрешение:", colL, RowLbl(wsR2));
             cmbRes = Combo(colL + 90, wsR2, 100, new object[] { "3440x1440", "2560x1080", "3840x1600", "5120x1440", "2560x1440", "1920x1080", "другое" });
             numW = Num(colL + 198, wsR2, 60, 640, 10000, S.Width);
@@ -562,14 +563,14 @@ namespace DowModManager
             numW.ValueChanged += (s, e) => { if (!loading) MarkDirty(); };
             numH.ValueChanged += (s, e) => { if (!loading) MarkDirty(); };
 
-            // строка 2, правая колонка: мини-карта — подпись, «?» и список в одной строке
+            // row 2, right column: minimap label, help dot and combo on one row
             var lblExe = Lbl("Мини-карта (exe):", colR, RowLbl(wsR2));
             var dotExe = DotAfter(lblExe, Help.ExeMode);
             cmbExe = Combo(dotExe.Right + 10, wsR2, 130, new object[] { "skip", "compromise", "full" });
             cmbExe.SelectedItem = new[] { "skip", "compromise", "full" }.Contains(S.ExeMode) ? S.ExeMode : "skip";
             cmbExe.SelectedIndexChanged += (s, e) => { if (!loading) MarkDirty(); };
 
-            // строка 3: нижняя панель управления
+            // row 3: the bottom command panel
             var lblTex = Lbl("Нижняя панель управления:", colL, RowLbl(wsR3));
             var dotTex = DotAfter(lblTex, Help.Textures);
             radCustom = Radio("дорисованные", dotTex.Right + 10, wsR3 + 1, 130);
@@ -582,7 +583,7 @@ namespace DowModManager
             Controls.Add(grpWs);
             y += 130;
 
-            // --- Камера ---
+            // --- Camera ---
             var grpCam = Group("Камера", 12, y, 660, 56);
             chkZoom = Check("Улучшенный зум (отвод колёсиком дальше)", 14, 24, 0);
             chkZoom.Checked = S.Zoom;
@@ -595,7 +596,7 @@ namespace DowModManager
             Controls.Add(grpCam);
             y += 64;
 
-            // --- Язык ---
+            // --- Language ---
             var grpLang = Group("Язык", 12, y, 660, 120);
             chkRus = Check("Русский язык", 14, 22, 0);
             chkRus.Checked = S.Russian;
@@ -624,7 +625,7 @@ namespace DowModManager
                     }
             });
 
-            // Уйти за русификатором прямо из приложения (ссылка — из README).
+            // Let the user go and fetch the localisation straight from the app.
             btnRusGet = Btn("Скачать русификатор…", 14, 84, 190, 26, (s, e) =>
             {
                 try { System.Diagnostics.Process.Start(RusGuideUrl); }
@@ -639,12 +640,12 @@ namespace DowModManager
             Controls.Add(grpLang);
             y += 128;
 
-            // --- Кнопки ---
+            // --- Buttons ---
             btnApply = Btn("Применить", 12, y, 140, 34, (s, e) => Run("apply"));
             btnPlay = Btn("Применить и играть", 160, y, 180, 34, (s, e) => Run("launch"));
             btnPlay.Font = new Font("Segoe UI Semibold", 9.5f, FontStyle.Bold);
             btnPlay.FlatStyle = FlatStyle.Flat;
-            // акцентная кнопка не сереет сама — красим по состоянию
+            // the accent button does not grey out by itself, so colour it manually
             btnPlay.EnabledChanged += (s, e) => StylePlayButton();
             btnDefaults = Btn("По умолчанию", 388, y, 140, 34, (s, e) => ResetToDefaults());
             tip.SetToolTip(btnDefaults, "Вернуть параметры окна к рекомендуемым значениям:\r\nразрешение подтягивается с текущего экрана, widescreen+UI,\r\nдорисованные текстуры, зум 76, exe: skip.\r\nНа игру это не влияет, пока не нажать «Применить».");
@@ -653,14 +654,14 @@ namespace DowModManager
             Controls.AddRange(new Control[] { btnApply, btnPlay, btnDefaults, btnRestore });
             y += 42;
 
-            // --- «Просто запустить игру» — всегда активна (не зависит от изменений) ---
+            // --- Plain "launch the game": always enabled, ignores pending changes ---
             btnLaunchOnly = Btn("▶ Запустить игру", 12, y, 328, 34, (s, e) => Run("launchonly"));
             btnLaunchOnly.Font = new Font("Segoe UI Semibold", 9.5f, FontStyle.Bold);
             tip.SetToolTip(btnLaunchOnly, "Просто запускает игру с тем, что сейчас стоит в файлах — ничего не применяя.\r\nАктивна всегда, пока найдена папка игры: не зависит от изменений в окне.");
             Controls.Add(btnLaunchOnly);
             y += 42;
 
-            // --- Статус + переключатель лога ---
+            // --- Status line and the log toggle ---
             lblStatus = Lbl("", 12, y + 6);
             lblStatus.AutoSize = false;
             lblStatus.Size = new Size(520, 20);
@@ -668,7 +669,7 @@ namespace DowModManager
             Controls.AddRange(new Control[] { lblStatus, btnLogToggle });
             y += 32;
 
-            // --- Лог ---
+            // --- Log ---
             log = new TextBox
             {
                 Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical,
@@ -680,7 +681,7 @@ namespace DowModManager
 
             formHeightWithLog = y + 220 + 48;
             formHeightNoLog = y + 12 + 48;
-            // лог по умолчанию скрыт
+            // the log starts collapsed
             log.Visible = false;
             btnLogToggle.Text = "Показать лог ▼";
             Height = formHeightNoLog;
@@ -711,7 +712,7 @@ namespace DowModManager
             header.Controls.Add(title);
         }
 
-        // ---------- Фабрики контролов ----------
+        // ---------- Control factories ----------
         GroupBox Group(string text, int x, int y, int w, int h)
         {
             return new GroupBox { Text = text, Location = new Point(x, y), Size = new Size(w, h), ForeColor = th.GroupFg };
@@ -735,14 +736,14 @@ namespace DowModManager
             else c.Size = new Size(TextWidth(c) + 22, 22);
             return c;
         }
-        // Ширина текста контрола в его шрифте
+        // Width of a control's text in its own font
         int TextWidth(Control c)
         {
             return TextRenderer.MeasureText(c.Text, c.Font).Width;
         }
-        // Подпись (17px) по центру строки, рассчитанной на контрол 24px
+        // A 17px label centred on a row sized for a 24px control
         int RowLbl(int rowY) { return rowY + 4; }
-        // «?» вплотную к названию параметра (единый отступ), по центру по вертикали
+        // Help dot right after the parameter name, uniform gap, vertically centred
         HelpDot DotAfter(Control c, string help)
         {
             int right = c.Left + c.Width;
@@ -813,7 +814,7 @@ namespace DowModManager
             }
         }
 
-        // ---------- Состояние ----------
+        // ---------- State ----------
         void ToggleWs()
         {
             bool on = chkWs.Checked;
@@ -823,18 +824,19 @@ namespace DowModManager
                 radCustom.Enabled = false;
         }
 
-        // Показывает РЕАЛЬНОЕ состояние локалей — всегда, независимо от галки.
-        // Раньше при снятой галке строка пустела, и было не понять, стоит ли
-        // русификатор вообще. Плюс отдельно предупреждаем про отсутствующую
-        // английскую локаль: именно из-за неё игра вылетала при выключении
-        // русского (движок падает, если [lang:X] указывает в никуда).
+        // Always reports the REAL locale state, whether or not the box is
+        // ticked. It used to blank out when unticked, so there was no way to
+        // tell whether a localisation was installed at all. A missing English
+        // locale is called out separately: that is what crashed the game when
+        // Russian was switched off, since the engine dies if [lang:X] points
+        // at nothing.
         void UpdateRusUi()
         {
             bool on = chkRus.Checked;
             bool haveRus = status.LocaleRussian;
             bool haveEng = status.LocaleEnglish;
 
-            // цвета, читаемые и в светлой, и в тёмной теме
+            // colours that stay readable in both the light and dark themes
             Color okColor   = Color.FromArgb(60, 160, 60);
             Color warnColor = Color.FromArgb(210, 120, 20);
 
@@ -862,7 +864,7 @@ namespace DowModManager
                 txtRus.Enabled = true; btnRusBrowse.Enabled = true;
             }
 
-            // Предупреждение о невозможности вернуть английский
+            // Warn that switching back to English is not possible
             if (haveRus && !haveEng)
             {
                 lblRusState.Text = "Русификатор установлен, английской локали нет.";
@@ -893,8 +895,8 @@ namespace DowModManager
             S.ExeMode = cmbExe.SelectedItem != null ? cmbExe.SelectedItem.ToString() : "skip";
         }
 
-        // Кнопки «Применить» активны только если в окне есть изменения
-        // относительно того, что реально стоит в игре.
+        // The Apply buttons are enabled only when the window differs from
+        // what is actually installed in the game.
         void MarkDirty()
         {
             SyncFromUi();
@@ -908,7 +910,7 @@ namespace DowModManager
                                    : "Настройки совпадают с тем, что установлено в игре.";
         }
 
-        // Игра установлена? От этого зависит, доступны ли настройки вообще.
+        // Is the game installed? Everything else is disabled when it is not.
         bool CheckGameInstalled()
         {
             string gp = txtPath.Text.Trim();
@@ -916,7 +918,7 @@ namespace DowModManager
             foreach (Control c in Controls)
                 if (c is GroupBox && c.Text != "Игра") c.Enabled = gameFound;
             btnApply.Enabled = btnPlay.Enabled = btnRestore.Enabled = gameFound && !busy;
-            // «Запустить игру» — только по факту наличия игры, без привязки к изменениям
+            // "Launch game" depends only on the game being present, not on changes
             if (btnLaunchOnly != null) btnLaunchOnly.Enabled = gameFound && !busy;
             if (!gameFound)
             {
@@ -944,7 +946,7 @@ namespace DowModManager
                 SetBusy(false);
                 if (!status.Known) { Log("[!] Не удалось прочитать состояние игры."); return; }
                 loading = true;
-                // подставляем реальные факты в окно
+                // push the real facts into the window
                 chkWs.Checked = status.WidescreenPatched || status.UiInstalled;
                 if (status.Width > 0 && status.Height > 0)
                 {
@@ -962,7 +964,7 @@ namespace DowModManager
                 ToggleWs();
                 UpdateRusUi();
                 SyncFromUi();
-                applied = S.Clone();      // это и есть «что стоит в игре»
+                applied = S.Clone();      // this is now "what is installed"
                 loading = false;
                 MarkDirty();
 
@@ -979,7 +981,7 @@ namespace DowModManager
         {
             loading = true;
             var d = new Settings();
-            // разрешение берём с монитора, на котором открыто окно
+            // take the resolution from the monitor the window is on
             int sw, sh;
             ScreenInfo.Get(this, out sw, out sh);
             if (sw >= 640 && sh >= 480) { d.Width = sw; d.Height = sh; }
@@ -1003,7 +1005,7 @@ namespace DowModManager
                 + "На игру пока не влияет — нажмите «Применить».", d.Width, d.Height, d.DistMax, d.ExeMode));
         }
 
-        // После отката снимаем все галочки: окно показывает «ничего не стоит»
+        // After a rollback clear every box: the window shows "nothing installed"
         void ResetUiAfterRestore()
         {
             loading = true;
@@ -1043,7 +1045,7 @@ namespace DowModManager
             }
         }
 
-        // ---------- Запуск бэкенда ----------
+        // ---------- Backend invocation ----------
         void RunPs(string modeArg, Action<int, string> onDone)
         {
             if (!File.Exists(launcher)) { Log("[!] DoW-Launcher.ps1 не найден."); if (onDone != null) onDone(1, ""); return; }
@@ -1108,7 +1110,7 @@ namespace DowModManager
                 Log("==== Готово (код выхода " + code + ") ====");
                 SetBusy(false);
                 if (mode == "restore") { ResetUiAfterRestore(); RefreshStatus(); }
-                else if (mode != "launchonly") RefreshStatus();   // просто запуск ничего не меняет
+                else if (mode != "launchonly") RefreshStatus();   // a plain launch changes nothing
             });
         }
 
@@ -1121,7 +1123,7 @@ namespace DowModManager
         }
     }
 
-    // ---------- Самопроверка без GUI ----------
+    // ---------- Headless self-test ----------
     static class SelfTest
     {
         public static void Run()
@@ -1142,8 +1144,8 @@ namespace DowModManager
                 && st.Width == 3440 && st.Height == 1440;
             Console.WriteLine("status parse: " + (ok2 ? "OK" : "FAIL"));
 
-            // локали: сценарий «русификатор есть, английской локали нет»
-            // (именно он раньше приводил к вылету при выключении русского)
+            // locales: the "localisation present, English locale missing" case
+            // that used to crash the game when Russian was switched off
             bool ok2b = st.LocaleRussian && !st.LocaleEnglish && st.LocalesFound == "Russian";
             var stEmpty = GameStatus.Parse("{\"LocaleRussian\":false,\"LocaleEnglish\":true,\"LocalesFound\":\"English\"}");
             ok2b = ok2b && !stEmpty.LocaleRussian && stEmpty.LocaleEnglish && stEmpty.LocalesFound == "English";
