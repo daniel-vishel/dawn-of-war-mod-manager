@@ -1,61 +1,65 @@
 ﻿# ============================================================
 #  Dawn of War (Anniversary Edition) - Unstretched UI
-#  Выгрузка/загрузка ломтиков фоновых текстур баров для ручной
-#  доработки (плавные края вместо жёстких обрезов).
+#  Export and import of the bar background slices for hand editing,
+#  so the panels can end on a soft edge instead of a hard cut.
 #
-#  -Export: режет фоновые текстуры баров из вашего Engine.sga на те
-#     же ломтики, что и Install-UnstretchedUI.ps1, и сохраняет их
-#     обычными PNG (правильная ориентация, альфа-канал) в
-#     ui-unstretch\textures\<раса>\. Ширина холста — с запасом
-#     (паддинг до степени двойки): туда можно ДОРИСОВАТЬ плавное
-#     окончание — в игре оно продолжит панель вправо.
-#  -Import: собирает отредактированные PNG обратно в игровые TGA
-#     (перевёрнутый порядок строк DDS, который ждёт движок) и кладёт
-#     их в <игра>\Engine\Data\... поверх установленных.
+#  -Export: cuts the bar background textures out of your Engine.sga
+#     into the same slices Install-UnstretchedUI.ps1 uses and saves
+#     them as ordinary PNGs (upright, with an alpha channel) under
+#     ui-unstretch\textures\<race>\. The canvas is wider than the
+#     content (padded to a power of two), so a soft ending can be
+#     PAINTED into that headroom; in game it continues the panel to
+#     the right.
+#  -Import: packs the edited PNGs back into game TGAs (the flipped DDS
+#     row order the engine expects) and installs them into
+#     <game>\Engine\Data\... over the ones already there.
 #
-#  Порядок работы:
-#      .\Install-UnstretchedUI.ps1       # установить мод (создаёт разметку)
-#      .\Edit-BarTextures.ps1 -Export    # выгрузить PNG для правки
-#      ... правите PNG в редакторе (альфа = прозрачность) ...
-#      .\Edit-BarTextures.ps1 -Import    # вернуть правки в игру
+#  Workflow:
+#      .\Install-UnstretchedUI.ps1       # install the mod, generating the layout
+#      .\Edit-BarTextures.ps1 -Export    # export the PNGs for editing
+#      ... edit the PNGs in any editor (alpha = transparency) ...
+#      .\Edit-BarTextures.ps1 -Import    # push the edits back into the game
 #
-#  ПОЛНОСТЬЮ ПЕРЕРИСОВАННЫЕ ломтики (любой размер, фон может быть
-#  чёрным вместо прозрачного — например, из нейросети) кладите в
-#  ui-unstretch\textures-custom\<раса>\<имя ломтика>.png.
-#  При -Import такие файлы обрабатываются автоматически:
-#    1) чёрный фон, связанный с краями картинки, вырезается заливкой
-#       (чёрные детали ВНУТРИ панели не трогаются);
-#    2) арт выравнивается по габаритам оригинального ломтика
-#       (масштаб по высоте, привязка к левому верхнему углу) — кнопки
-#       и мини-карта остаются точно на своих местах;
-#    3) в textures-custom\_preview\ пишется оверлей нового арта с
-#       оригиналом — совмещение можно проверить БЕЗ запуска игры
-#       (то же самое делает -Preview, игра для него не нужна).
+#  FULLY REPAINTED slices (any size, and the background may be black
+#  instead of transparent - e.g. generated art) go into
+#  ui-unstretch\textures-custom\<race>\<slice name>.png.
+#  On -Import such files are processed automatically:
+#    1) the black background connected to the image border is keyed out
+#       by flood fill; black details INSIDE the panel are left alone;
+#    2) the art is fitted to the original slice art box (scaled by
+#       height, anchored top-left), so the buttons and the minimap stay
+#       exactly where they belong;
+#    3) an overlay of the new art against the original is written to
+#       textures-custom\_preview\, so the alignment can be checked
+#       WITHOUT launching the game (-Preview does the same and needs no
+#       game install).
 #
-#  ВНУТРЕННИЕ ДЫРЫ панели (командная карта, гнёзда портретов), которые
-#  должны быть ПРОЗРАЧНЫМИ, чтобы сквозь них был виден мир/кнопки:
-#  заливка чёрного от краёв (п.1) до них НЕ доходит — они заперты рамкой.
-#  Два способа их вырезать:
-#    a) нарисовать в редакторе НАСТОЯЩУЮ прозрачность (alpha=0) и выключить
-#       кеинг чёрного: align.json {"threshold":-1} (так сделан taskbar_ws1);
-#    b) залить каждую дыру ярким цветом-маркером, которого нет в реальном
-#       арте (магента FF00FF), и указать его в align.json:
-#       {"chroma":"FF00FF","chromaTol":60} — цвет вырезается ВЕЗДЕ, включая
-#       замкнутые зоны; допуск chromaTol подбирается так, чтобы не задеть
-#       металл рамки.
-#  Точная подгонка (если арт сел неидеально): рядом с PNG положите
-#  <имя>.png.align.json вида
+#  ENCLOSED HOLES in the panel (the command card, the portrait sockets)
+#  have to be TRANSPARENT so the world and the buttons show through.
+#  The border flood fill from step 1 never reaches them: they are walled
+#  in by the frame. Two ways to cut them out:
+#    a) paint REAL transparency (alpha=0) in an editor and disable the
+#       black keying: align.json {"threshold":-1} - this is how
+#       taskbar_ws1 is done;
+#    b) fill each hole with a bright marker colour that does not occur in
+#       the real art (magenta FF00FF) and name it in align.json:
+#       {"chroma":"FF00FF","chromaTol":60} - the colour is keyed out
+#       EVERYWHERE, enclosed regions included; pick chromaTol so it does
+#       not eat the metal of the frame.
+#  Fine tuning, if the art does not land perfectly: put a sidecar next to
+#  the PNG named <name>.png.align.json, of the form
 #     {"scale":1.02,"dx":-3,"dy":1,"threshold":12,"chroma":"FF00FF","chromaTol":60}
 #
-#  ВАЖНО: повторный запуск Install-UnstretchedUI.ps1 перегенерирует
-#  TGA из архива и затрёт ваши правки — после него снова -Import.
-#  В textures\ размеры PNG не меняйте (ширина — степень двойки).
+#  IMPORTANT: re-running Install-UnstretchedUI.ps1 regenerates the TGAs
+#  from the archive and overwrites your edits, so run -Import again after
+#  it. Do not change the PNG dimensions in textures\ - the width is a
+#  power of two.
 # ============================================================
 
 param(
     [switch]$Export,
     [switch]$Import,
-    [switch]$Preview,   # только пересобрать превью-оверлеи для textures-custom (игра не нужна)
+    [switch]$Preview,   # only rebuild the textures-custom preview overlays (no game needed)
     [string]$GamePath = '',
     [string]$Dir = "$PSScriptRoot\textures",
     [string]$CustomDir = "$PSScriptRoot\textures-custom"
@@ -68,19 +72,20 @@ if (-not $Export -and -not $Import -and -not $Preview) {
     exit 1
 }
 
-# Разрезы — те же, что в Install-UnstretchedUI.ps1 (держать в синхроне!)
-# Fade — кромка ломтика, смотрящая в открытый мир: там альфа мягко
-# уходит в 0, чтобы панель растворялась, а не обрывалась хардкатом.
-# 'R' — правая кромка, 'L' — левая; по индексу ломтика.
-# ВНИМАНИЕ к индексам: ломтики 0-based. В текущей раскладке ws2 (инд. 1)
-# приклеен к ws3 (инд. 2) справа — их общий стык НЕ фейдим (иначе шов
-# внутри блока); в мир смотрит ЛЕВЫЙ край ws2.
+# The cuts are the same as in Install-UnstretchedUI.ps1 - keep them in sync!
+# Fade marks the slice edge that faces the open world: alpha eases to 0
+# there so the panel dissolves instead of ending on a hard cut.
+# 'R' is the right edge, 'L' the left, keyed by slice index.
+# MIND THE INDICES: slices are 0-based. In the current layout ws2 (index 1)
+# is glued to ws3 (index 2) on its right, so their shared seam is NOT faded
+# - that would put a seam inside the block. It is the LEFT edge of ws2 that
+# faces the world.
 $barSlices = @(
     @{ Base = 'taskbar';      Cuts = @(0.0, 0.278, 0.630, 1.0); Fade = @{ 0 = 'R'; 1 = 'L' } },
     @{ Base = 'taskbar_menu'; Cuts = @(0.0, 0.45, 1.0);         Fade = @{ 0 = 'R'; 1 = 'L' } }
 )
 
-# ---------- C#: чтение SGA v2 + декодер DXT ----------
+# ---------- C#: SGA v2 reader plus DXT decoder ----------
 Add-Type -TypeDefinition @"
 using System;
 using System.Collections.Generic;
@@ -158,7 +163,7 @@ public static class SgaV2R2 {
 
 public static class DxtDec2 {
     public static byte[] Decode(byte[] d, int off, int w, int h, string fmt) {
-        byte[] outPx = new byte[w * h * 4]; // BGRA, в порядке строк DDS
+        byte[] outPx = new byte[w * h * 4]; // BGRA, in DDS row order
         int bw = (w + 3) / 4, bh = (h + 3) / 4;
         int blockSize = fmt == "DXT1" ? 8 : 16;
         for (int by = 0; by < bh; by++)
@@ -233,9 +238,9 @@ public static class DxtDec2 {
     }
 }
 
-// ----- Выравнивание перерисованных текстур (BGRA-буферы) -----
+// ----- Fitting of repainted textures (BGRA buffers) -----
 public static class TexAlign {
-    // bbox пикселей ярче порога: [x0,y0,x1,y1] или x1=-1, если пусто
+    // bbox of pixels brighter than the threshold: [x0,y0,x1,y1], or x1=-1 if empty
     public static int[] BBoxNonBlack(byte[] px, int w, int h, int thr) {
         int x0 = w, y0 = h, x1 = -1, y1 = -1;
         for (int y = 0; y < h; y++)
@@ -250,9 +255,10 @@ public static class TexAlign {
         }
         return new int[] { x0, y0, x1, y1 };
     }
-    // bbox непрозрачных пикселей (порог по альфе настраиваемый:
-    // для габаритов оригинала с фейд-кромками нужен порог 0, иначе
-    // полупрозрачные столбцы фейда выпадают из бокса и арт съезжает)
+    // bbox of opaque pixels; the alpha threshold is configurable because
+    // measuring an original that has faded edges needs a threshold of 0,
+    // otherwise the translucent fade columns drop out of the box and the
+    // fitted art shifts
     public static int[] BBoxAlpha(byte[] px, int w, int h) { return BBoxAlpha(px, w, h, 16); }
     public static int[] BBoxAlpha(byte[] px, int w, int h, int thr) {
         int x0 = w, y0 = h, x1 = -1, y1 = -1;
@@ -265,8 +271,8 @@ public static class TexAlign {
         }
         return new int[] { x0, y0, x1, y1 };
     }
-    // Вырезает фон: почти чёрные пиксели, связанные с краями картинки,
-    // получают alpha=0. Чёрные детали внутри панели не задеваются.
+    // Keys out the background: near-black pixels connected to the image
+    // border get alpha=0. Black details inside the panel are not touched.
     public static int KeyBackground(byte[] px, int w, int h, int thr) {
         bool[] bg = new bool[w * h];
         Queue<int> q = new Queue<int>();
@@ -291,14 +297,15 @@ public static class TexAlign {
         if (m <= thr) { bg[i] = true; q.Enqueue(i); }
     }
 
-    // Вырезает по цвету-маркеру ВЕЗДЕ (без привязки к краям): пиксель с
-    // alpha>0, у которого |R-tr|,|G-tg|,|B-tb| <= tol по каждому каналу,
-    // получает alpha=0. В отличие от KeyBackground это достаёт ЗАМКНУТЫЕ
-    // внутренние дыры (командная карта, гнёзда портретов), запертые рамкой,
-    // куда заливка от краёв не дотягивается. Художник помечает такие зоны
-    // ярким «зелёнкой»-цветом (напр. магента FF00FF), который в реальном
-    // арте не встречается, а точечная сверка по каналам не задевает металл
-    // рамки. bgr: target как 0xRRGGBB.
+    // Keys out a marker colour EVERYWHERE, with no border connectivity:
+    // any pixel with alpha>0 whose |R-tr|, |G-tg|, |B-tb| are all <= tol
+    // gets alpha=0. Unlike KeyBackground this reaches ENCLOSED interior
+    // holes (the command card, the portrait sockets) walled in by the
+    // frame, where a fill starting from the border never arrives. The
+    // artist marks those zones with a bright chroma-key colour (e.g.
+    // magenta FF00FF) that never occurs in the real art, and the exact
+    // per-channel comparison leaves the frame metal alone.
+    // bgr: target colour as 0xRRGGBB.
     public static int KeyChroma(byte[] px, int w, int h, int rgb, int tol) {
         int tr = (rgb >> 16) & 0xFF, tg = (rgb >> 8) & 0xFF, tb = rgb & 0xFF;
         int n = 0;
@@ -316,7 +323,7 @@ public static class TexAlign {
 
 Add-Type -AssemblyName System.Drawing
 
-# ---------- Поиск папки с игрой ----------
+# ---------- Locate the game folder ----------
 function Find-GamePath {
     $candidates = @(
         "C:\Program Files (x86)\Steam\steamapps\common\Dawn of War Gold",
@@ -350,7 +357,7 @@ function Find-GamePath {
     return $null
 }
 
-# Для -Preview игра не нужна: работаем только с PNG в папках скрипта
+# -Preview needs no game: it works purely on the PNGs in the script folders
 $engineDir = $null
 if ($Export -or $Import) {
     if (-not $GamePath) { $GamePath = Find-GamePath }
@@ -372,17 +379,18 @@ if ($Export -or $Import) {
 
 function Get-Pow2([int]$n) { $p = 1; while ($p -lt $n) { $p *= 2 }; return $p }
 
-# Плавное затухание альфы на кромке контента [0..cw) внутри буфера P*th
-# (BGRA). $side: 'R' — правая кромка, 'L' — левая. Ширина фейда — доля cw.
+# Eases alpha out along the content edge [0..cw) inside a P*th buffer
+# (BGRA). $side: 'R' for the right edge, 'L' for the left. The fade width
+# is a fraction of cw.
 function Apply-Fade([byte[]]$buf, [int]$P, [int]$th, [int]$cw, [string]$side, [int]$fwPx = 8) {
-    # Тонкий фейд (несколько пикселей) — только сгладить срез, не
-    # трогая контент. Широкий фейд полупрозрачно «затуманивал» панель
-    # (сквозь портрет/гнёзда просвечивал мир).
+    # Keep the fade thin, a few pixels: it should only soften the cut and
+    # not reach the content. A wide fade made the panel look hazy, with the
+    # world showing through the portrait and the sockets.
     if (-not $side) { return }
     $fw = [Math]::Min($fwPx, [int]($cw / 2))
     if ($fw -lt 2) { return }
     for ($x = 0; $x -lt $fw; $x++) {
-        # t: 1 у внутреннего края фейда, 0 у самой кромки
+        # t: 1 at the inner end of the fade, 0 right at the edge
         $t = ($x + 0.5) / $fw
         $col = if ($side -eq 'R') { $cw - 1 - $x } else { $x }
         for ($y = 0; $y -lt $th; $y++) {
@@ -393,13 +401,13 @@ function Apply-Fade([byte[]]$buf, [int]$P, [int]$th, [int]$cw, [string]$side, [i
     }
 }
 
-# BGRA (порядок строк DDS, «вверх ногами») <-> Bitmap (нормальная ориентация)
+# BGRA (DDS row order, upside down) <-> Bitmap (normal orientation)
 function Save-PngFlipped([byte[]]$px, [int]$w, [int]$h, [string]$path) {
     $bmp = New-Object System.Drawing.Bitmap($w, $h, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $rect = New-Object System.Drawing.Rectangle(0, 0, $w, $h)
     $bd = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::WriteOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     for ($y = 0; $y -lt $h; $y++) {
-        $srcRow = $h - 1 - $y   # переворот: DDS-порядок -> нормальный вид
+        $srcRow = $h - 1 - $y   # flip: DDS order -> normal orientation
         [System.Runtime.InteropServices.Marshal]::Copy($px, $srcRow * $w * 4, [IntPtr]($bd.Scan0.ToInt64() + $y * $bd.Stride), $w * 4)
     }
     $bmp.UnlockBits($bd)
@@ -413,14 +421,14 @@ function Load-PngFlipped([string]$path, [ref]$w, [ref]$h) {
     $bd = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $px = New-Object byte[] ($bmp.Width * $bmp.Height * 4)
     for ($y = 0; $y -lt $bmp.Height; $y++) {
-        $dstRow = $bmp.Height - 1 - $y   # переворот: нормальный вид -> DDS-порядок
+        $dstRow = $bmp.Height - 1 - $y   # flip: normal orientation -> DDS order
         [System.Runtime.InteropServices.Marshal]::Copy([IntPtr]($bd.Scan0.ToInt64() + $y * $bd.Stride), $px, $dstRow * $bmp.Width * 4, $bmp.Width * 4)
     }
     $bmp.UnlockBits($bd)
     $bmp.Dispose()
     return ,$px
 }
-# --- Работа с Bitmap в нормальной (не DDS) ориентации ---
+# --- Working with a Bitmap in normal (non-DDS) orientation ---
 function Get-BitmapBuffer([System.Drawing.Bitmap]$bmp) {
     $rect = New-Object System.Drawing.Rectangle(0, 0, $bmp.Width, $bmp.Height)
     $bd = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
@@ -442,8 +450,8 @@ function New-BitmapFromBuffer([byte[]]$px, [int]$w, [int]$h) {
     return $bmp
 }
 
-# ---------- Обработка перерисованных текстур (textures-custom) ----------
-# Возвращает число обработанных файлов; $writeTga=$false — только превью.
+# ---------- Processing of repainted textures (textures-custom) ----------
+# Returns the number of files processed; $writeTga=$false means preview only.
 function Process-CustomTextures([bool]$writeTga) {
     if (-not (Test-Path $CustomDir)) {
         Write-Host "Папка $CustomDir не найдена — перерисованных текстур нет." -ForegroundColor Yellow
@@ -452,8 +460,9 @@ function Process-CustomTextures([bool]$writeTga) {
     $prevDir = Join-Path $CustomDir '_preview'
     New-Item -ItemType Directory -Force -Path $prevDir | Out-Null
     $count = 0
-    # берём только файлы-ломтики (<base>_wsN.png); всё прочее в папке —
-    # исходники/референсы (например *-original-art.png), их не трогаем
+    # take only the slice files (<base>_wsN.png); anything else in the
+    # folder is a source or reference (e.g. *-original-art.png) and is
+    # left alone
     $pngs = Get-ChildItem $CustomDir -Recurse -Filter '*.png' |
             Where-Object { $_.FullName -notlike '*\_preview\*' -and $_.BaseName -match '_ws\d+$' }
     foreach ($png in $pngs) {
@@ -464,12 +473,14 @@ function Process-CustomTextures([bool]$writeTga) {
             Write-Host "  [!!] $race\$name.png — нет оригинала в textures\$race (сначала запустите -Export)" -ForegroundColor Red
             continue
         }
-        # необязательная подгонка: <файл>.align.json
+        # optional fine tuning: <file>.align.json
         #   {"scale":..,"dx":..,"dy":..,"threshold":..,"chroma":"FF00FF","chromaTol":60}
-        # threshold — порог кеинга чёрного фона от краёв (-1 = выключить).
-        # chroma/chromaTol — цвет-маркер (RRGGBB) и допуск для вырезания
-        # ЗАМКНУТЫХ внутренних дыр (командная карта, гнёзда портретов),
-        # запертых рамкой: заливка от краёв туда не доходит.
+        # threshold is the cutoff for keying the black background from the
+        # borders (-1 disables it).
+        # chroma/chromaTol are the marker colour (RRGGBB) and the tolerance
+        # used to cut out ENCLOSED interior holes (the command card, the
+        # portrait sockets) walled in by the frame, where a fill from the
+        # borders never arrives.
         $adjScale = 1.0; $adjDx = 0; $adjDy = 0; $thr = 12
         $chroma = $null; $chromaTol = 60
         $sidecar = "$($png.FullName).align.json"
@@ -483,8 +494,8 @@ function Process-CustomTextures([bool]$writeTga) {
             if ($null -ne $j.chromaTol){ $chromaTol = [int]$j.chromaTol }
         }
 
-        # 1) пользовательский арт: вырезаем фон заливкой от краёв, затем
-        #    (если задан) цвет-маркер внутренних дыр — везде.
+        # 1) user art: key the background out from the borders, then, if
+        #    one is configured, the interior-hole marker colour everywhere.
         $userBmpRaw = New-Object System.Drawing.Bitmap($png.FullName)
         $uw = $userBmpRaw.Width; $uh = $userBmpRaw.Height
         $ubuf = Get-BitmapBuffer $userBmpRaw
@@ -502,15 +513,15 @@ function Process-CustomTextures([bool]$writeTga) {
         }
         $userBmp = New-BitmapFromBuffer $ubuf $uw $uh
 
-        # 2) оригинальный ломтик: холст и габариты арта
+        # 2) original slice: the canvas and the art box
         $origBmp = New-Object System.Drawing.Bitmap($origPng)
         $P = $origBmp.Width; $th = $origBmp.Height
         $obuf = Get-BitmapBuffer $origBmp
         $ob = [TexAlign]::BBoxAlpha($obuf, $P, $th)
         if ($ob[2] -lt 0) { $ob = @(0, 0, $P - 1, $th - 1) }
 
-        # 3) совмещение: высота арта = высоте оригинального арта,
-        #    привязка к его левому верхнему углу (пропорции сохраняются)
+        # 3) alignment: match the art height to the original art height and
+        #    anchor to its top-left corner, preserving the aspect ratio
         $obH = $ob[3] - $ob[1] + 1
         $ubW = $ub[2] - $ub[0] + 1; $ubH = $ub[3] - $ub[1] + 1
         $s = ($obH / $ubH) * $adjScale
@@ -531,7 +542,7 @@ function Process-CustomTextures([bool]$writeTga) {
         $clipNote = ''
         if ($destX + $destW -gt $P) { $clipNote = " | правый край обрезан холстом ($($destX+$destW)px > $P px)" }
 
-        # 4) превью: оригинал полупрозрачно поверх результата
+        # 4) preview: the original drawn semi-transparent over the result
         $prev = New-Object System.Drawing.Bitmap($P, $th, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
         $pg = [System.Drawing.Graphics]::FromImage($prev)
         $pg.Clear([System.Drawing.Color]::FromArgb(255, 40, 40, 40))
@@ -546,7 +557,7 @@ function Process-CustomTextures([bool]$writeTga) {
         $prev.Save($prevPath, [System.Drawing.Imaging.ImageFormat]::Png)
         $prev.Dispose()
 
-        # 5) TGA в игру
+        # 5) write the TGA into the game
         if ($writeTga) {
             $cbuf = Get-BitmapBuffer $canvas
             $ddsBuf = New-Object byte[] ($P * $th * 4)
@@ -567,7 +578,7 @@ function Process-CustomTextures([bool]$writeTga) {
 }
 
 function Write-Tga([string]$path, [byte[]]$px, [int]$w, [int]$h) {
-    # строки в порядке DDS, origin top-left (0x28) — так ждёт движок
+    # rows in DDS order, origin top-left (0x28): what the engine expects
     $hdr = New-Object byte[] 18
     $hdr[2]  = 2
     $hdr[12] = $w -band 0xFF; $hdr[13] = ($w -shr 8) -band 0xFF
@@ -604,9 +615,10 @@ if ($Export) {
                 for ($y = 0; $y -lt $th; $y++) {
                     [Array]::Copy($px, ($y * $tw + $x0) * 4, $buf, $y * $P * 4, $cw * 4)
                 }
-                # фейд в PNG НЕ запекаем: это исходники для ручной правки
-                # и якорь габаритов для textures-custom; фейд накладывается
-                # при записи игровых TGA в -Import (и в установщике)
+                # the fade is NOT baked into the PNGs: they are editing
+                # sources and the size anchor for textures-custom fitting.
+                # The fade is applied when the game TGAs are written in
+                # -Import, and in the installer
                 $f = Join-Path $outDir ("{0}_ws{1}.png" -f $base, ($i + 1))
                 Save-PngFlipped $buf $P $th $f
                 $count++
@@ -625,7 +637,7 @@ if ($Export) {
     exit 0
 }
 
-# ---------- Preview (совмещение перерисованных текстур, игра не нужна) ----------
+# ---------- Preview: alignment of repainted textures, no game needed ----------
 if ($Preview) {
     $n = Process-CustomTextures $false
     Write-Host "`nПревью пересобраны: $n (папка $CustomDir\_preview)" -ForegroundColor Cyan
@@ -649,8 +661,9 @@ if ($Import) {
         }
         $outDir = Join-Path $engineDir "Data\art\ui\textures\taskbar\$folder"
         New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-        # фейд мировой кромки — только при записи игрового TGA
-        # (в PNG-исходниках его нет); ломтик определяем по имени файла
+        # the world-facing edge fade is applied only when writing the game
+        # TGA, since the PNG sources carry none; the slice is identified by
+        # the file name
         $fnote = ''
         if ($png.BaseName -match '^(.+)_ws(\d+)$') {
             $fbase = $Matches[1]; $fidx = [int]$Matches[2] - 1

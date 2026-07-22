@@ -1,42 +1,42 @@
 ﻿# ============================================================
 #  Dawn of War (Anniversary Edition) - Unstretched UI
-#  Нерастянутый интерфейс для широких экранов (21:9 и др.).
+#  Unstretched interface for wide screens (21:9 and others).
 #
-#  Принцип: разметка интерфейса лежит в Engine.sga ->
-#  data/art/ui/screens/*.screen (Lua-таблицы, координаты в долях
-#  экрана). Скрипт извлекает разметку ИЗ ВАШЕГО архива, сжимает
-#  панели HUD по горизонтали с коэффициентом k = (4/3)/(ширина/высота)
-#  (пропорции как на 4:3, мини-карта не искажена) и разносит их по
-#  углам: левые панели — к левому краю, правые — к правому, центр —
-#  по центру. Фоновые текстуры баров (одна картинка на всю ширину)
-#  режутся на ломтики по границам зон и разъезжаются вместе со своими
-#  кнопками. 3D-мир (ctmSimVis) растягивается на весь экран (в
-#  оригинале он рендерится только над панелью задач — верхние ~80%
-#  высоты).
+#  Mechanism: the UI layout lives in Engine.sga ->
+#  data/art/ui/screens/*.screen (Lua tables, coordinates in screen
+#  fractions). The script extracts the layout from YOUR OWN archive,
+#  squeezes the HUD panels horizontally by k = (4/3)/(width/height) so
+#  the proportions match 4:3 and the minimap is no longer distorted,
+#  then spreads them into the corners: left panels to the left edge,
+#  right panels to the right, centre ones stay centred. The bar
+#  background textures (one image spanning the full width) are sliced
+#  at the zone boundaries so each slice travels with its own buttons.
+#  The 3D world (ctmSimVis) is expanded to the whole screen; stock it
+#  renders only above the taskbar, the top ~80% of the height.
 #
-#  Оригинальные файлы игры НЕ изменяются: результат кладётся
-#  loose-файлом в <игра>\Engine\Data поверх архива.
-#  Откат: -Restore (удаляет установленные файлы по манифесту).
+#  Original game files are NOT modified: the result is written as loose
+#  files into <game>\Engine\Data, on top of the archive.
+#  Rollback: -Restore, which deletes the installed files by manifest.
 #
-#  Использование:
-#      .\Install-UnstretchedUI.ps1                    # 3440x1440, только игровой HUD
+#  Usage:
+#      .\Install-UnstretchedUI.ps1                    # 3440x1440, in-game HUD only
 #      .\Install-UnstretchedUI.ps1 -Width 2560 -Height 1080
-#      .\Install-UnstretchedUI.ps1 -AllScreens        # + все меню (экспериментально)
-#      .\Install-UnstretchedUI.ps1 -Restore           # откат
+#      .\Install-UnstretchedUI.ps1 -AllScreens        # + every menu (experimental)
+#      .\Install-UnstretchedUI.ps1 -Restore           # rollback
 # ============================================================
 
 param(
     [int]$Width  = 3440,
     [int]$Height = 1440,
     [string]$GamePath = '',
-    [switch]$AllScreens,   # преобразовать все *.screen (меню), а не только игровой HUD
+    [switch]$AllScreens,   # transform every *.screen (menus), not just the in-game HUD
     [switch]$Restore
 )
 
 $ErrorActionPreference = 'Stop'
 $inv = [System.Globalization.CultureInfo]::InvariantCulture
 
-# ---------- C#: чтение SGA v2 + парсер/трансформер .screen ----------
+# ---------- C#: SGA v2 reader plus .screen parser/transformer ----------
 Add-Type -TypeDefinition @"
 using System;
 using System.Collections.Generic;
@@ -113,11 +113,11 @@ public static class SgaV2R {
     }
 }
 
-// ----- Парсер Lua-таблиц формата .screen -----
+// ----- Parser for the Lua tables of the .screen format -----
 public class LNode {
-    public string Key;                 // null для безымянных элементов
+    public string Key;                 // null for unnamed elements
     public bool IsTable;
-    public string Scalar;              // сырой скаляр: "строка", число, true/false
+    public string Scalar;              // raw scalar: "string", number, true/false
     public List<LNode> Items = new List<LNode>();
     public LNode Get(string key) {
         foreach (var n in Items) if (n.Key == key) return n;
@@ -230,33 +230,33 @@ public static class ScreenFile {
     }
     static void Indent(StringBuilder sb, int n) { for (int i = 0; i < n; i++) sb.Append('\t'); }
 
-    // ----- Преобразование под широкий экран -----
-    // Боксы виджетов заданы в долях экрана, позиция — смещение от
-    // родителя. Примитивы (Graphic/Text/HitArea) — в долях родителя,
-    // их не трогаем.
+    // ----- Transform for a wide screen -----
+    // Widget boxes are given in screen fractions and a position is an
+    // offset from the parent. Primitives (Graphic/Text/HitArea) are in
+    // parent fractions and are left alone.
     //
-    // Полноширинные контейнеры (ширина ~1, x ~0: grpBackground,
-    // grpTaskbar, grpMenubar, grpWarnings) не сжимаются — обходим их
-    // детей. Остальные панели сжимаются по x с коэффициентом k и
-    // якорятся по положению своего центра на 4:3:
-    //   центр < 1/3  -> к левому краю   (x' = x*k)
-    //   центр > 2/3  -> к правому краю  (x' = x*k + 1-k)
-    //   иначе        -> по центру       (x' = x*k + (1-k)/2)
-    // Вложенные виджеты — чистое масштабирование x*k.
+    // Full-width containers (width ~1, x ~0: grpBackground, grpTaskbar,
+    // grpMenubar, grpWarnings) are not squeezed; we descend into their
+    // children instead. Every other panel is squeezed along x by k and
+    // anchored by where its centre sat on 4:3:
+    //   centre < 1/3  -> to the left edge    (x' = x*k)
+    //   centre > 2/3  -> to the right edge   (x' = x*k + 1-k)
+    //   otherwise     -> centred             (x' = x*k + (1-k)/2)
+    // Nested widgets get plain x*k scaling.
     //
-    // Expand — растянуть на весь экран (3D-мир ctmSimVis: в оригинале
-    // рендерится только над панелью задач, верхние ~80% высоты).
-    // Keep — не трогать. Force* — ручное переопределение стороны для
-    // пограничных случаев.
+    // Expand - stretch to the whole screen (the ctmSimVis 3D world;
+    // stock it renders only above the taskbar, the top ~80% of height).
+    // Keep - leave untouched. Force* - manual side override for the
+    // borderline cases.
     public static string[] Keep        = new string[0];
     public static string[] Expand      = new string[0];
     public static string[] ForceLeft   = new string[0];
     public static string[] ForceCenter = new string[0];
     public static string[] ForceRight  = new string[0];
-    // Жёсткое переопределение экранной x-позиции виджета (доля экрана).
-    // Для случаев, когда автосжатие ставит виджет не туда (напр. кнопки
-    // «след. юнит»/overwatch, наезжающие на ромб мини-карты). Размер
-    // всё равно масштабируется на k (чтобы кнопки остались квадратными).
+    // Hard override of a widget's on-screen x position (screen fraction),
+    // for cases where the automatic squeeze puts it in the wrong place -
+    // e.g. the next-unit and overwatch buttons landing on the minimap
+    // diamond. The size is still scaled by k so buttons stay square.
     public static System.Collections.Generic.Dictionary<string,double> ForcePosX =
         new System.Collections.Generic.Dictionary<string,double>(StringComparer.OrdinalIgnoreCase);
 
@@ -307,7 +307,7 @@ public static class ScreenFile {
         double x  = GetX(w.Get("position"), 0.0);
         double sx = GetX(w.Get("size"), double.NaN);
         if (anchorMode && !double.IsNaN(sx) && sx >= 0.95 && Math.Abs(x) <= 0.02) {
-            TransformChildren(w, k, true);   // полноширинный контейнер: бокс не трогаем
+            TransformChildren(w, k, true);   // full-width container: leave its box alone
             return;
         }
         double add = 0.0;
@@ -345,17 +345,18 @@ public static class ScreenFile {
         }
     }
 
-    // ----- Служебное -----
+    // ----- Housekeeping -----
     public static LNode Clone(LNode n) {
         var c = new LNode { Key = n.Key, IsTable = n.IsTable, Scalar = n.Scalar };
         foreach (var it in n.Items) c.Items.Add(Clone(it));
         return c;
     }
 
-    // У части кнопок (CommandIcon01, Reinforce, Upgrade01, btnPlayback*)
-    // в разметке нет ключа size — движок берёт размер из стиля, и наше
-    // сжатие на них не действует: кнопки остаются широкими и наезжают
-    // на соседей. Копируем size у соседа с тем же типом и тем же стилем.
+    // Some buttons (CommandIcon01, Reinforce, Upgrade01, btnPlayback*)
+    // carry no size key in the layout: the engine takes their size from
+    // the style, so our squeeze does not reach them and they stay wide
+    // and overlap their neighbours. Copy the size from a sibling of the
+    // same type and the same style.
     public static int InjectSizes(LNode root) {
         int c = 0;
         InjectRec(root, ref c);
@@ -402,10 +403,10 @@ public static class ScreenFile {
     }
 }
 
-// ----- Декодер DXT1/3/5 (для нарезки фоновых текстур баров) -----
+// ----- DXT1/3/5 decoder, used to slice the bar background textures -----
 public static class DxtDec {
     public static byte[] Decode(byte[] d, int off, int w, int h, string fmt) {
-        byte[] outPx = new byte[w * h * 4]; // BGRA, сверху вниз
+        byte[] outPx = new byte[w * h * 4]; // BGRA, top-down
         int bw = (w + 3) / 4, bh = (h + 3) / 4;
         int blockSize = fmt == "DXT1" ? 8 : 16;
         for (int by = 0; by < bh; by++)
@@ -481,7 +482,7 @@ public static class DxtDec {
 }
 "@
 
-# ---------- Поиск папки с игрой ----------
+# ---------- Locate the game folder ----------
 function Find-GamePath {
     $candidates = @(
         "C:\Program Files (x86)\Steam\steamapps\common\Dawn of War Gold",
@@ -526,7 +527,7 @@ if (-not $GamePath -or -not (Test-Path (Join-Path $GamePath 'W40k.exe'))) {
 }
 Write-Host "Папка игры: $GamePath" -ForegroundColor Cyan
 
-# ---------- Engine.sga и папка установки ----------
+# ---------- Engine.sga and the install folder ----------
 $engineSga = Get-ChildItem -Path $GamePath -Recurse -Filter 'Engine.sga' -ErrorAction SilentlyContinue |
              Select-Object -First 1
 if (-not $engineSga) {
@@ -537,7 +538,7 @@ $engineDir  = Split-Path $engineSga.FullName -Parent
 $installDir = Join-Path $engineDir 'Data\art\ui\screens'
 $manifest   = Join-Path $engineDir 'Data\ui-unstretch-manifest.txt'
 
-# ---------- Откат ----------
+# ---------- Rollback ----------
 if ($Restore) {
     if (Test-Path $manifest) {
         foreach ($f in Get-Content $manifest) {
@@ -554,7 +555,7 @@ if ($Restore) {
     exit 0
 }
 
-# ---------- Преобразование ----------
+# ---------- Transform ----------
 $aspect = $Width / $Height
 $k = (4.0 / 3.0) / $aspect
 if ($k -ge 0.999) {
@@ -574,50 +575,54 @@ if ($screens.Count -eq 0) {
 }
 Write-Host "Файлов разметки к преобразованию: $($screens.Count)"
 
-# ---------- Конфигурация якорения ----------
-[ScreenFile]::Keep        = @('testBackground')          # не трогать
-[ScreenFile]::Expand      = @('ctmSimVis')               # 3D-мир — на весь экран
+# ---------- Anchoring configuration ----------
+[ScreenFile]::Keep        = @('testBackground')          # leave untouched
+[ScreenFile]::Expand      = @('ctmSimVis')               # 3D world: fill the screen
 [ScreenFile]::ForceLeft   = @()
-# Пограничные случаи (центр виджета у порога 1/3 или 2/3):
+# Borderline cases, where a widget centre sits near the 1/3 or 2/3 threshold:
 [ScreenFile]::ForceRight  = @(
-    'btnToggleTeamUI',        # парная к btnChatHistory (уходит вправо)
-    # Панель выбора (центр нижнего бара) приклеивается к командной
-    # карте справа — единый блок в правом углу, без обреза на стыке:
-    'artTaskbar_ws2',         # центральный ломтик фона
+    'btnToggleTeamUI',        # pairs with btnChatHistory, so it goes right
+    # The selection panel (centre of the bottom bar) is glued to the
+    # command card on the right, forming one block in the right corner
+    # with no visible cut at the seam:
+    'artTaskbar_ws2',         # the centre background slice
     'grpStructureSelection', 'grpSingleSquadSelection', 'grpMultiSquadSelection',
     'grpSquadHold', 'grpAddOns', 'grpMultipage',
     'txtPlayerName', 'txtForceName', 'btnHideTaskbar'
 )
-[ScreenFile]::ForceCenter = @('txtChatTeam','txtChatAll') # подписи прилегают к полю ввода чата
+[ScreenFile]::ForceCenter = @('txtChatTeam','txtChatAll') # labels hug the chat input box
 
-# ForcePosX намеренно пуст: кнопки «след. юнит»/overwatch при обычном
-# сжатии ложатся ровно на свои нарисованные гнёзда (красные круги) в
-# текстуре гнезда мини-карты — текстура и кнопки сжимаются одной
-# формулой. Ручной сдвиг эти пары разлучает.
+# ForcePosX is deliberately empty: under the plain squeeze the next-unit
+# and overwatch buttons land exactly on their painted sockets (the red
+# circles) in the minimap socket texture, because the texture and the
+# buttons go through the same formula. A manual offset tears those pairs
+# apart.
 
-# Разрезы фоновых текстур баров: границы функциональных зон (доли ширины).
-# Нижний бар: гнездо мини-карты | панель отряда | сетка команд.
-# Верхний бар: плашки ресурсов | (пусто) | полоса кнопок меню.
-# Fade — кромка ломтика, смотрящая в открытый мир: альфа мягко уходит
-# в 0 вместо жёсткого обреза ('R'/'L', индексы ломтиков 0-based).
-# Стык ws2|ws3 (правый блок) не фейдим — он внутренний.
-# Синхронизировано с Edit-BarTextures.ps1.
+# Cuts for the bar background textures: the functional zone boundaries,
+# as fractions of the width.
+# Bottom bar: minimap socket | squad panel | command grid.
+# Top bar: resource plates | (empty) | the row of menu buttons.
+# Fade marks the slice edge that faces the open world: alpha eases to 0
+# there instead of ending on a hard cut ('R'/'L', slice indices 0-based).
+# The ws2|ws3 seam (the right block) is not faded, being internal.
+# Kept in sync with Edit-BarTextures.ps1.
 $barSlices = @(
     @{ Art = 'artTaskbar'; Cuts = @(0.0, 0.278, 0.630, 1.0); Fade = @{ 0 = 'R'; 1 = 'L' } },
     @{ Art = 'artMenubar'; Cuts = @(0.0, 0.45, 1.0);         Fade = @{ 0 = 'R'; 1 = 'L' } }
 )
 
-# Плавное затухание альфы на кромке контента [0..cw) внутри буфера P*th
-# (BGRA). $side: 'R' — правая кромка, 'L' — левая. Ширина фейда — доля cw.
-# (идентично Apply-Fade в Edit-BarTextures.ps1)
+# Eases alpha out along the content edge [0..cw) inside a P*th buffer
+# (BGRA). $side: 'R' for the right edge, 'L' for the left. The fade width
+# is a fraction of cw. (Identical to Apply-Fade in Edit-BarTextures.ps1.)
 function Apply-Fade([byte[]]$buf, [int]$P, [int]$th, [int]$cw, [string]$side, [int]$fwPx = 8) {
-    # Тонкий фейд (несколько пикселей) — только сгладить срез, не
-    # трогая контент (широкий фейд полупрозрачно «затуманивал» панель).
+    # Keep the fade thin, a few pixels: it should only soften the cut and
+    # not reach the content. A wide fade made the panel look hazy, with the
+    # world showing through it.
     if (-not $side) { return }
     $fw = [Math]::Min($fwPx, [int]($cw / 2))
     if ($fw -lt 2) { return }
     for ($x = 0; $x -lt $fw; $x++) {
-        # t: 1 у внутреннего края фейда, 0 у самой кромки
+        # t: 1 at the inner end of the fade, 0 right at the edge
         $t = ($x + 0.5) / $fw
         $col = if ($side -eq 'R') { $cw - 1 - $x } else { $x }
         for ($y = 0; $y -lt $th; $y++) {
@@ -628,21 +633,21 @@ function Apply-Fade([byte[]]$buf, [int]$P, [int]$th, [int]$cw, [string]$side, [i
     }
 }
 
-# ---------- Вспомогательные функции нарезки ----------
+# ---------- Slicing helpers ----------
 function Get-Pow2([int]$n) { $p = 1; while ($p -lt $n) { $p *= 2 }; return $p }
 
 function Write-Tga([string]$path, [byte[]]$px, [int]$w, [int]$h) {
-    # $px — BGRA построчно в том же порядке, что и в исходном DDS.
-    # Строки пишем КАК ЕСТЬ (top-down, флаг origin=top-left): порядок
-    # строк в файле совпадает с DDS, и движок (который сэмплирует
-    # текстуры с V-флипом, как и оригинальные DDS) рисует ломтик
-    # так же, как рисовал цельный фон. Запись снизу-вверх давала
-    # вертикально зеркальную картинку.
+    # $px is BGRA, row by row, in the same order as the source DDS.
+    # Rows are written AS IS (top-down, origin=top-left flag): the row
+    # order in the file then matches the DDS, and the engine - which
+    # samples textures V-flipped, exactly as it does the stock DDS -
+    # draws the slice the same way it drew the whole background.
+    # Writing bottom-up produced a vertically mirrored image.
     $hdr = New-Object byte[] 18
-    $hdr[2]  = 2                                     # несжатый truecolor
+    $hdr[2]  = 2                                     # uncompressed truecolor
     $hdr[12] = $w -band 0xFF; $hdr[13] = ($w -shr 8) -band 0xFF
     $hdr[14] = $h -band 0xFF; $hdr[15] = ($h -shr 8) -band 0xFF
-    $hdr[16] = 32; $hdr[17] = 0x28                   # 32bpp, 8 бит альфы, origin top-left
+    $hdr[16] = 32; $hdr[17] = 0x28                   # 32bpp, 8-bit alpha, origin top-left
     $fs = [IO.File]::Create($path)
     try {
         $fs.Write($hdr, 0, 18)
@@ -691,13 +696,15 @@ function Set-X($t, [string]$x) {
     $t.Items[0].Scalar = $x
 }
 
-# Нарезка фоновой текстуры бара. Фон нарисован одной картинкой на всю
-# ширину, поэтому просто разнести виджеты по углам нельзя — фон остался
-# бы единым куском. Режем текстуру по границам зон на ломтики (для всех
-# рас: chaos/eldar/orks/taskbar_share), кладём loose-файлами, а виджет
-# фона заменяем на ломтики-виджеты, которые разъезжаются по углам вместе
-# со своими кнопками. Паддинг до степени двойки компенсируется шириной
-# отрисовки (P/cw), прозрачный хвост свисает за боксом — не виден.
+# Slices a bar background texture. The background is drawn as a single
+# full-width image, so simply moving the widgets into the corners is not
+# enough: the background would stay one solid piece. The texture is cut
+# at the zone boundaries into slices (for every race: chaos, eldar, orks,
+# taskbar_share) and installed as loose files, and the background widget
+# is replaced by slice widgets that travel into the corners together with
+# their buttons. Padding up to a power of two is compensated by the draw
+# width (P/cw); the transparent tail hangs outside the box and is never
+# visible.
 function Split-BarArt($tree, $entries, [string]$sgaPath, [string]$engineDir, [double[]]$cuts, [string]$artName, $fadeSpec) {
     $found = Find-Widget $tree $artName
     if (-not $found) { return ,@() }
@@ -720,7 +727,7 @@ function Split-BarArt($tree, $entries, [string]$sgaPath, [string]$engineDir, [do
         return ,@()
     }
 
-    # метрики ломтиков — по share-текстуре (или первой найденной)
+    # slice metrics come from the share texture, or the first one found
     $metaSrc = $srcs | Where-Object { $_.Path -like '*taskbar_share*' } | Select-Object -First 1
     if (-not $metaSrc) { $metaSrc = $srcs[0] }
     $d0 = [SgaV2R]::ReadFileData($sgaPath, $metaSrc)
@@ -732,7 +739,7 @@ function Split-BarArt($tree, $entries, [string]$sgaPath, [string]$engineDir, [do
         $sliceMeta += @{ x0 = $x0; cw = $cw; P = (Get-Pow2 $cw) }
     }
 
-    # генерация текстур-ломтиков для каждой расы
+    # generate the slice textures for every race
     $written = @()
     foreach ($src in $srcs) {
         $d = [SgaV2R]::ReadFileData($sgaPath, $src)
@@ -766,7 +773,7 @@ function Split-BarArt($tree, $entries, [string]$sgaPath, [string]$engineDir, [do
         }
     }
 
-    # замена виджета фона на ломтики (z-порядок сохраняется)
+    # replace the background widget with the slices, preserving z-order
     $parentList = $found.List
     $parentList.Items.RemoveAt($found.Index)
     for ($i = $sliceMeta.Count - 1; $i -ge 0; $i--) {
@@ -803,7 +810,7 @@ foreach ($e in $screens) {
         $injected = [ScreenFile]::InjectSizes($tree)
         [ScreenFile]::Transform($tree, $k)
         $out  = [ScreenFile]::Serialize($tree)
-        [ScreenFile]::Parse($out) | Out-Null   # самопроверка: результат снова парсится
+        [ScreenFile]::Parse($out) | Out-Null   # self-check: the result parses again
         $dest = Join-Path $installDir $name
         [IO.File]::WriteAllText($dest, $out, [Text.Encoding]::ASCII)
         $installed += $dest
